@@ -9,7 +9,6 @@ pub(crate) use bitvec::prelude::*;
 pub(crate) use derive_more::IntoIterator;
 pub(crate) use std::{
     collections::{btree_map::Entry, BTreeMap},
-    error::Error,
     fmt::{Debug, Display, Formatter, Result as FmtResult, Write},
     str::FromStr,
 };

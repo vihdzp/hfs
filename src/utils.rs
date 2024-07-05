@@ -55,10 +55,12 @@ impl<T> Levels<T> {
         self.get_range(level).map(|range| &self.data[range])
     }
 
+    /*
     /// Gets the mutable slice corresponding to a given level.
-    pub fn get_mut<'a>(&'a mut self, level: usize) -> Option<&'a mut [T]> {
+    pub fn get_mut(&mut self, level: usize) -> Option<&mut [T]> {
         self.get_range(level).map(|range| &mut self.data[range])
     }
+    */
 
     /// Returns the last element in `indices`.
     pub fn last_idx(&self) -> usize {
@@ -160,7 +162,7 @@ impl<T> Levels<T> {
 }
 
 macro_rules! traits {
-    ($t: ty) => { impl Iterator<Item = $t> + DoubleEndedIterator + ExactSizeIterator + '_ }
+    ($t: ty) => { impl DoubleEndedIterator<Item = $t> + ExactSizeIterator + '_ }
 }
 
 impl<T> Levels<T> {
@@ -168,6 +170,7 @@ impl<T> Levels<T> {
         (0..self.rank()).map(|r| unsafe { self.get(r).unwrap_unchecked() })
     }
 
+    /*
     pub fn iter_mut(&mut self) -> traits!(&mut [T]) {
         // Safety: these slices are all disjoint.
         let indices = &self.indices;
@@ -178,6 +181,7 @@ impl<T> Levels<T> {
             std::slice::from_raw_parts_mut(ptr.add(*start), end - start)
         })
     }
+    */
 
     /// For each set in a level within [`Levels`], finds the range for its children in the next
     /// level. Allows for a custom cardinality function.
@@ -205,7 +209,7 @@ impl<T: Display> Display for Levels<T> {
                 iter.next().unwrap_unchecked()
             })?;
 
-            while let Some(next) = iter.next() {
+            for next in iter {
                 write!(f, " | {next}")?;
             }
             writeln!(f)?;
@@ -249,8 +253,8 @@ impl<'a> Levels<&'a Mset> {
             let snd_level = unsafe { other.get(r).unwrap_unchecked() };
 
             for snd_range in Self::child_iter(snd_level) {
-                let range = unsafe { snd_next.get_unchecked(snd_range).iter().copied() };
-                let mut children = SmallVec::from_iter(range);
+                let mut children: SmallVec<_> =
+                    unsafe { snd_next.get_unchecked(snd_range).iter().copied() }.collect();
                 children.sort_unstable();
 
                 // Number of times found, minus one.
@@ -269,8 +273,8 @@ impl<'a> Levels<&'a Mset> {
             }
 
             for fst_range in Self::child_iter(fst_level) {
-                let range = unsafe { fst_next.get_unchecked(fst_range).iter().copied() };
-                let mut children = SmallVec::from_iter(range);
+                let mut children: SmallVec<_> =
+                    unsafe { fst_next.get_unchecked(fst_range).iter().copied() }.collect();
                 children.sort_unstable();
 
                 // Remove one to the times found.
@@ -308,7 +312,7 @@ impl<'a> Levels<*mut Mset> {
     pub fn new_mut(set: &'a mut Mset) -> Self {
         // The set is not mutated, so the pointers remain valid to dereference.
         Self::new_gen(set, |buf, set| {
-            buf.extend(unsafe { &mut *set }.iter_mut().map(|x| x as *mut _))
+            buf.extend(unsafe { &mut *set }.iter_mut().map(std::ptr::from_mut));
         })
     }
 }
@@ -333,7 +337,7 @@ impl Ahu {
         Self(BitVec::EMPTY)
     }
 
-    /// Finds the AHU encoding for a multiset.
+    /// Finds the [`Ahu`] encoding for a multiset.
     pub fn new(set: &Mset) -> Self {
         let levels = Levels::new(set);
         let mut cur = Vec::new();
@@ -343,7 +347,9 @@ impl Ahu {
             cur.clear();
             for range in Levels::child_iter(level) {
                 let start = range.start;
-                if !range.is_empty() {
+                if range.is_empty() {
+                    cur.push(BitVec::new());
+                } else {
                     next[range.clone()].sort_unstable();
 
                     // Reuse buffer.
@@ -359,9 +365,7 @@ impl Ahu {
                         buf.extend(set);
                         buf.push(false);
                     }
-                    cur.push(buf)
-                } else {
-                    cur.push(BitVec::new());
+                    cur.push(buf);
                 }
             }
 

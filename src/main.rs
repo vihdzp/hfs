@@ -14,7 +14,7 @@ type SmallVec<T> = smallvec::SmallVec<[T; 8]>;
 
 fn main() {
     let a: Mset = "{{}, {}, {{}, {}}, {{}}}".parse().unwrap();
-    let b = a.clone().to_set();
+    let b: Set = a.clone().into_set();
 
     println!("Set A: {a}\nSet B: {b}");
 }

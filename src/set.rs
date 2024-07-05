@@ -1,6 +1,6 @@
 //! Hereditarily finite sets [`Set`].
 
-use crate::{prelude::*, utils::Levels};
+use crate::prelude::*;
 
 /// A set is a multiset that hereditarily has no duplicate elements.
 ///
@@ -67,7 +67,7 @@ fn dedup_by<T: Default>(
 
     // Now put them in place.
     set.clear();
-    set.extend(buf2.drain(..));
+    set.append(buf2);
 }
 
 impl Set {
@@ -89,15 +89,15 @@ impl Set {
 
             // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
             // still valid.
-            let iter = Levels::child_iter_gen(level, |s| unsafe { &*(*s as *const Mset) }.card());
+            let iter = Levels::child_iter_gen(level, |s| unsafe { &*(s.cast_const()) }.card());
             for (i, range) in iter.enumerate() {
                 // Deduplicate the set.
                 unsafe {
                     let set = &mut **level.get_unchecked(i);
-                    dedup_by(&mut set.0, &next.get_unchecked(range), &mut buf1, &mut buf2);
+                    dedup_by(&mut set.0, next.get_unchecked(range), &mut buf1, &mut buf2);
                 };
 
-                let children = SmallVec::from_iter(buf1.iter().map(|(_, k)| *k));
+                let children: SmallVec<_> = buf1.iter().map(|(_, k)| *k).collect();
                 let len = sets.len();
                 match sets.entry(children) {
                     Entry::Vacant(entry) => {
@@ -196,7 +196,7 @@ impl Mset {
     /// Flattens a multiset into a set.
     ///
     /// See [`Set::from_mset`].
-    pub fn to_set(self) -> Set {
+    pub fn into_set(self) -> Set {
         Set::from_mset(self)
     }
 
@@ -205,12 +205,12 @@ impl Mset {
     /// ## Safety
     ///
     /// See [`Set::from_mset_unchecked`].
-    pub unsafe fn to_set_unchecked(self) -> Set {
+    pub unsafe fn into_set_unchecked(self) -> Set {
         Set::from_mset_unchecked(self)
     }
 
     pub unsafe fn as_set(&self) -> &Set {
-        unsafe { &*(self as *const Mset as *const Set) }
+        unsafe { &*(std::ptr::from_ref(self).cast()) }
     }
 }
 
@@ -313,12 +313,12 @@ impl Set {
 
     /// Set union x ∪ y.
     pub fn union(self, other: Self) -> Self {
-        (self.0.union(other.0)).to_set()
+        (self.0.union(other.0)).into_set()
     }
 
     /// Set union ∪x.
     pub fn big_union(self) -> Self {
-        self.0.big_union().to_set()
+        self.0.big_union().into_set()
     }
 
     /// Mutable set specification.

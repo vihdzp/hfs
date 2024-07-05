@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use crate::{prelude::*, utils::Levels};
+use crate::prelude::*;
 
 /// A hereditarily finite multiset.
 #[derive(Clone, Default, Eq, IntoIterator)]
@@ -32,40 +32,40 @@ impl Display for Mset {
 
 /// Error in parsing a multiset. This can only happen due to mismatched brackets.
 #[derive(Clone, Copy, Debug)]
-pub struct MsetError;
+pub struct Error;
 
-impl Display for MsetError {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.write_str("mismatched brackets")
     }
 }
 
-impl Error for MsetError {}
+impl std::error::Error for Error {}
 
 /// Sets are parsed from their set-builder notation. Any symbol other than `{` and `}` is ignored.
 impl FromStr for Mset {
-    type Err = MsetError;
+    type Err = Error;
 
-    fn from_str(s: &str) -> Result<Self, MsetError> {
+    fn from_str(s: &str) -> Result<Self, Error> {
         let mut stack = Vec::new();
         let mut iter = s.chars();
 
         loop {
-            let c = iter.next().ok_or(MsetError)?;
+            let c = iter.next().ok_or(Error)?;
             match c {
                 // New set.
                 '{' => stack.push(Self::empty()),
 
                 // Close last set.
                 '}' => {
-                    let last = stack.pop().ok_or(MsetError)?;
+                    let last = stack.pop().ok_or(Error)?;
                     if let Some(prev) = stack.last_mut() {
                         prev.insert_mut(last);
                     } else {
                         // Set has been built.
-                        while let Some(c) = iter.next() {
+                        for c in iter {
                             if ['{', '}'].contains(&c) {
-                                return Err(MsetError);
+                                return Err(Error);
                             }
                         }
 
@@ -188,7 +188,7 @@ impl Mset {
 
     /// Set membership ∈.
     pub fn mem(&self, other: &Self) -> bool {
-        self.iter().find(|&set| set == other).is_some()
+        self.iter().any(|set| set == other)
     }
 
     /// Subset ⊆.
@@ -248,7 +248,7 @@ impl Mset {
     }
 
     // Set intersection x ∩ y.
-    pub fn intersection(self, other: Self) -> Self {
+    pub fn intersection(self, _other: &Self) -> Self {
         todo!()
     }
 
