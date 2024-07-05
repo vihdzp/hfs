@@ -81,7 +81,7 @@ impl FromStr for Mset {
 impl PartialEq for Mset {
     fn eq(&self, other: &Self) -> bool {
         if let Some((fst, snd)) =
-            Levels::both(self, other, Vec::extend, |fst, snd| fst.len() == snd.len())
+            Levels::init(self).both(Levels::init(other), |fst, snd| fst.len() == snd.len())
         {
             // Since both sets have the same number of hereditary subsets, checking the subset
             // relation suffices.
@@ -96,9 +96,10 @@ impl PartialEq for Mset {
 /// times as the other.
 impl PartialOrd for Mset {
     fn le(&self, other: &Self) -> bool {
-        if let Some((fst, snd)) =
-            Levels::both(self, other, Vec::extend, |fst, snd| fst.len() <= snd.len())
-        {
+        let levels =
+            Levels::init(self).both(Levels::init(other), |fst, snd| fst.len() <= snd.len());
+
+        if let Some((fst, snd)) = levels {
             fst.subset(&snd)
         } else {
             false
@@ -110,9 +111,10 @@ impl PartialOrd for Mset {
     }
 
     fn lt(&self, other: &Self) -> bool {
-        if let Some((fst, snd)) =
-            Levels::both(self, other, Vec::extend, |fst, snd| fst.len() <= snd.len())
-        {
+        let levels =
+            Levels::init(self).both(Levels::init(other), |fst, snd| fst.len() <= snd.len());
+
+        if let Some((fst, snd)) = levels {
             fst.len() < snd.len() && fst.subset(&snd)
         } else {
             false
@@ -125,7 +127,7 @@ impl PartialOrd for Mset {
 
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let mut candidate = Ordering::Equal;
-        let levels = Levels::both(self, other, Vec::extend, |fst, snd| {
+        let levels = Levels::init(self).both(Levels::init(other), |fst, snd| {
             let cmp = fst.len().cmp(&snd.len());
             if cmp.is_ne() {
                 if candidate.is_eq() {
@@ -197,7 +199,27 @@ impl Mset {
     /// Set membership ∈.
     #[must_use]
     pub fn mem(&self, other: &Self) -> bool {
-        self.iter().any(|set| set == other)
+        let mut fst = unsafe { Levels::empty() };
+        let snd = Levels::init(other).new();
+        let mut buf = Vec::new();
+
+        self.iter().any(move |set| {
+            fst.init_mut(set);
+            let mut r = 1;
+            while fst.step(&mut buf) {
+                if let Some(level) = snd.get(r) {
+                    if fst.last().len() != level.len() {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+
+                r += 1;
+            }
+
+            fst.subset(&snd)
+        })
     }
 
     /// Subset ⊆.
@@ -267,7 +289,7 @@ impl Mset {
     pub fn inter(self, other: Self) -> Self {
         let idx = self.card();
         let mut pair = self.pair(other);
-        let levels = Levels::new(&pair);
+        let levels = Levels::init(&pair).new();
 
         // The intersection of two empty sets is empty.
         let elements;
@@ -322,13 +344,13 @@ impl Mset {
     #[must_use]
     pub fn powerset(self) -> Self {
         let n = self.card();
-        let mut powerset = Self(vec![Self::empty()]);
+        let mut powerset = Self::empty().singleton();
         if n == 0 {
             return powerset;
         }
 
         for mut i in 1..((1 << n) - 1) {
-            let mut subset = Mset::empty();
+            let mut subset = Self::empty();
             for j in 0..n {
                 if i % 2 == 1 {
                     subset.insert_mut(self.0[j].clone());
@@ -345,7 +367,7 @@ impl Mset {
     /// The von Neumann rank of the set.
     #[must_use]
     pub fn rank(&self) -> usize {
-        Levels::new(self).rank()
+        Levels::init(self).new().rank()
     }
 
     /// The von Neumann set encoding for n.

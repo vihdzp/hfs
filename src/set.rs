@@ -78,7 +78,7 @@ impl Set {
     /// Flattens a multiset into a set hereditarily.
     #[must_use]
     pub fn from_mset(mut set: Mset) -> Self {
-        let levels = Levels::new_mut(&mut set);
+        let levels = Levels::init(std::ptr::from_mut(&mut set)).new_mut();
         let mut cur = Vec::new();
         let mut next = vec![0; levels.last().len()];
 
@@ -129,7 +129,7 @@ impl Mset {
     /// See also [`Self::into_set`].
     #[must_use]
     pub fn is_set(&self) -> bool {
-        let levels = Levels::new(self);
+        let levels = Levels::init(self).new();
         let mut cur = Vec::new();
         let mut next = vec![0; levels.last().len()];
 
@@ -419,7 +419,7 @@ impl Set {
     pub fn inter(self, other: Self) -> Self {
         let idx = self.card();
         let mut pair = self.0.pair(other.0);
-        let levels = Levels::new(&pair);
+        let levels = Levels::init(&pair).new();
 
         // The intersection of two empty sets is empty.
         let elements;

@@ -1,6 +1,9 @@
 //! # Hereditarily finite sets
 
 #![warn(clippy::pedantic)]
+#![warn(missing_docs)]
+#![warn(clippy::missing_safety_doc)]
+#![warn(clippy::missing_docs_in_private_items)]
 
 mod mset;
 
@@ -27,6 +30,7 @@ macro_rules! smallvec {
 fn main() {
     let a = Set::nat(2);
     let b = Set::nat(3);
+    dbg!(b.rank());
     let c = a.clone().inter(b.clone());
 
     println!("A:     {a}\nB:     {b}\nA ∩ B: {c}");
