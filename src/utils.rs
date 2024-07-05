@@ -46,7 +46,8 @@ impl<T> Levels<T> {
     /// The number of levels stored.
     ///
     /// This is actually the rank of the multiset plus one.
-    #[must_use]pub fn rank(&self) -> usize {
+    #[must_use]
+    pub fn rank(&self) -> usize {
         self.indices.len()
     }
 

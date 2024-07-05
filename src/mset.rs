@@ -156,21 +156,24 @@ impl PartialOrd for Mset {
 
 impl Mset {
     /// The empty set Ø.
+    #[must_use]
     pub const fn empty() -> Self {
         Self(Vec::new())
     }
 
     /// Returns whether the multiset is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
     /// Clears the multiset.
     pub fn clear(&mut self) {
-        self.0.clear()
+        self.0.clear();
     }
 
     /// Set cardinality.
+    #[must_use]
     pub fn card(&self) -> usize {
         self.0.len()
     }
@@ -186,16 +189,19 @@ impl Mset {
     }
 
     /// Finds the [`Ahu`] encoding for a multiset.
+    #[must_use]
     pub fn ahu(&self) -> Ahu {
         Ahu::new(self)
     }
 
     /// Set membership ∈.
+    #[must_use]
     pub fn mem(&self, other: &Self) -> bool {
         self.iter().any(|set| set == other)
     }
 
     /// Subset ⊆.
+    #[must_use]
     pub fn subset(&self, other: &Self) -> bool {
         self.le(other)
     }
@@ -213,22 +219,26 @@ impl Mset {
     }
 
     /// Set singleton {x}.
+    #[must_use]
     pub fn singleton(self) -> Self {
         Self(vec![self])
     }
 
     /// Set pair {x, y}.
+    #[must_use]
     pub fn pair(self, other: Self) -> Self {
         Self(vec![self, other])
     }
 
     /// Set union x ∪ y.
+    #[must_use]
     pub fn union(mut self, other: Self) -> Self {
         self.0.extend(other);
         self
     }
 
     /// Set union ∪x.
+    #[must_use]
     pub fn big_union(self) -> Self {
         self.into_iter().flatten().collect()
     }
@@ -246,12 +256,14 @@ impl Mset {
     }
 
     /// Set specification.
+    #[must_use]
     pub fn select<P: FnMut(&Mset) -> bool>(mut self, pred: P) -> Self {
         self.select_mut(pred);
         self
     }
 
     /// Set intersection x ∩ y.
+    #[must_use]
     pub fn inter(self, other: Self) -> Self {
         let idx = self.card();
         let mut pair = self.pair(other);
@@ -287,10 +299,8 @@ impl Mset {
                 Entry::Occupied(mut entry) => {
                     if i < idx {
                         entry.get_mut().push(i);
-                    } else {
-                        if let Some(j) = entry.get_mut().pop() {
-                            indices.push(j);
-                        }
+                    } else if let Some(j) = entry.get_mut().pop() {
+                        indices.push(j);
                     }
                 }
             }
@@ -309,6 +319,7 @@ impl Mset {
     }
 
     /// Powerset 2^x.
+    #[must_use]
     pub fn powerset(self) -> Self {
         let n = self.card();
         let mut powerset = Self(vec![Self::empty()]);
@@ -332,11 +343,13 @@ impl Mset {
     }
 
     /// The von Neumann rank of the set.
+    #[must_use]
     pub fn rank(&self) -> usize {
         Levels::new(self).rank()
     }
 
     /// The von Neumann set encoding for n.
+    #[must_use]
     pub fn nat(n: usize) -> Self {
         let mut res = Mset::empty();
         for _ in 0..n {
@@ -346,6 +359,7 @@ impl Mset {
     }
 
     /// The Zermelo set encoding for n.
+    #[must_use]
     pub fn zermelo(n: usize) -> Self {
         let mut res = Mset::empty();
         for _ in 0..n {
@@ -355,6 +369,7 @@ impl Mset {
     }
 
     /// The von Neumann hierarchy.
+    #[must_use]
     pub fn neumann(n: usize) -> Self {
         debug_assert!(
             n <= 5,
@@ -383,30 +398,30 @@ mod tests {
 
     #[test]
     fn empty() {
-        roundtrip(Mset::empty(), "{}")
+        roundtrip(Mset::empty(), "{}");
     }
 
     #[test]
     fn singleton() {
-        roundtrip(Mset::empty().singleton(), "{{}}")
+        roundtrip(Mset::empty().singleton(), "{{}}");
     }
 
     #[test]
     fn pair() {
         let set = Mset::empty();
-        roundtrip(set.clone().pair(set), "{{}, {}}")
+        roundtrip(set.clone().pair(set), "{{}, {}}");
     }
 
     #[test]
     fn nat() {
         for n in 0..4 {
-            roundtrip(Mset::nat(n), NATS[n])
+            roundtrip(Mset::nat(n), NATS[n]);
         }
     }
 
     #[test]
     fn union() {
         let set = Mset::nat(2).union(Mset::nat(3));
-        roundtrip(set, "{{}, {}, {{}}, {{}}, {{}, {{}}}}")
+        roundtrip(set, "{{}, {}, {{}}, {{}}, {{}, {{}}}}");
     }
 }

@@ -39,6 +39,7 @@ impl Display for Set {
 }
 
 /// Transmute [`Vec<Set>`] into [`Vec<Mset>`].
+#[allow(dead_code)]
 fn cast_vec(vec: Vec<Set>) -> Vec<Mset> {
     let mut vec = ManuallyDrop::new(vec);
     unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
@@ -75,6 +76,7 @@ unsafe fn dedup_by<T: Default>(
 
 impl Set {
     /// Flattens a multiset into a set hereditarily.
+    #[must_use]
     pub fn from_mset(mut set: Mset) -> Self {
         let levels = Levels::new_mut(&mut set);
         let mut cur = Vec::new();
@@ -115,6 +117,7 @@ impl Set {
     ///
     /// You must guarantee that `set` is in fact a set. Doing otherwise breaks the type invariant
     /// for [`Set`].
+    #[must_use]
     pub unsafe fn from_mset_unchecked(set: Mset) -> Self {
         Self(set)
     }
@@ -124,6 +127,7 @@ impl Mset {
     /// Checks whether the multiset is in fact a set. This property is checked hereditarily.
     ///
     /// See also [`Self::into_set`].
+    #[must_use]
     pub fn is_set(&self) -> bool {
         let levels = Levels::new(self);
         let mut cur = Vec::new();
@@ -169,6 +173,7 @@ impl Mset {
     /// Flattens a multiset into a set.
     ///
     /// See [`Set::from_mset`].
+    #[must_use]
     pub fn into_set(self) -> Set {
         Set::from_mset(self)
     }
@@ -178,6 +183,7 @@ impl Mset {
     /// ## Safety
     ///
     /// See [`Set::from_mset_unchecked`].
+    #[must_use]
     pub unsafe fn into_set_unchecked(self) -> Set {
         Set::from_mset_unchecked(self)
     }
@@ -188,6 +194,7 @@ impl Mset {
     /// ## Safety
     ///
     /// See [`Set::from_mset_unchecked`].
+    #[must_use]
     pub unsafe fn as_set(&self) -> &Set {
         unsafe { &*(std::ptr::from_ref(self).cast()) }
     }
@@ -270,31 +277,36 @@ impl<'a> IntoIterator for &'a mut Set {
 
 impl Set {
     /// Returns a reference to the underlying multiset.
+    #[must_use]
     pub const fn mset(&self) -> &Mset {
         &self.0
     }
 
     /// The empty set Ø.
+    #[must_use]
     pub const fn empty() -> Self {
         Self(Mset::empty())
     }
 
     /// Returns whether the set is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
     /// Clears the set.
     pub fn clear(&mut self) {
-        self.0.clear()
+        self.0.clear();
     }
 
     /// Set cardinality.
+    #[must_use]
     pub fn card(&self) -> usize {
         self.0.card()
     }
 
     /// An iterator over the elements of the [`Set`].
+    #[must_use]
     pub fn iter(&self) -> Cast<std::slice::Iter<Mset>> {
         self.into_iter()
     }
@@ -305,16 +317,19 @@ impl Set {
     }
 
     /// Finds the [`Ahu`] encoding for a set.
+    #[must_use]
     pub fn ahu(&self) -> Ahu {
         self.0.ahu()
     }
 
     /// Set membership ∈.
+    #[must_use]
     pub fn mem(&self, other: &Self) -> bool {
         self.0.mem(&other.0)
     }
 
     /// Subset ⊆.
+    #[must_use]
     pub fn subset(&self, other: &Self) -> bool {
         self.0.subset(&other.0)
     }
@@ -349,27 +364,32 @@ impl Set {
     ///
     /// You must guarantee that `other` does not belong to `self`. Doing otherwise breaks the type
     /// invariant for [`Set`].
+    #[must_use]
     pub unsafe fn insert_unchecked(mut self, other: Self) -> Self {
         self.insert_mut_unchecked(other);
         self
     }
 
     /// Set singleton {x}.
+    #[must_use]
     pub fn singleton(self) -> Self {
         Self(self.0.singleton())
     }
 
     /// Set pair {x, y}.
+    #[must_use]
     pub fn pair(self, other: Self) -> Self {
         self.singleton().insert(other)
     }
 
     /// Set union x ∪ y.
+    #[must_use]
     pub fn union(self, other: Self) -> Self {
         (self.0.union(other.0)).into_set()
     }
 
     /// Set union ∪x.
+    #[must_use]
     pub fn big_union(self) -> Self {
         self.0.big_union().into_set()
     }
@@ -386,6 +406,7 @@ impl Set {
     }
 
     /// Set specification.
+    #[must_use]
     pub fn select<P: FnMut(&Set) -> bool>(mut self, pred: P) -> Self {
         self.select_mut(pred);
         self
@@ -394,6 +415,7 @@ impl Set {
     /// Set intersection x ∩ y.
     ///
     /// This is a modified version of [`Mset::inter`].
+    #[must_use]
     pub fn inter(self, other: Self) -> Self {
         let idx = self.card();
         let mut pair = self.0.pair(other.0);
