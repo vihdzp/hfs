@@ -22,7 +22,9 @@ pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usiz
 ///
 /// ## Invariants
 ///
-/// Every [`Levels`] must have a root level with a single node, and no level can be empty.
+/// - Every [`Levels`] must have a root level with a single node, and no level can be empty.
+/// - The elements of `indices` are a strictly increasing sequence, and they are all smaller than
+///   the length of `data`.
 pub struct Levels<T> {
     /// The i-th element of the array represents the start point for the i-th level in the data
     /// array.
@@ -44,16 +46,19 @@ impl<T> Levels<T> {
     /// The number of levels stored.
     ///
     /// This is actually the rank of the multiset plus one.
-    pub fn rank(&self) -> usize {
+    #[must_use]pub fn rank(&self) -> usize {
         self.indices.len()
     }
 
     /// The total amount of data stored within all levels.
+    #[allow(clippy::len_without_is_empty)]
+    #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Get the range within the slice corresponding to some level.
+    #[must_use]
     pub fn get_range(&self, level: usize) -> Option<Range<usize>> {
         let start = *self.indices.get(level)?;
         let end = self.indices.get(level + 1).copied().unwrap_or(self.len());
@@ -61,6 +66,7 @@ impl<T> Levels<T> {
     }
 
     /// Gets the slice corresponding to a given level.
+    #[must_use]
     pub fn get(&self, level: usize) -> Option<&[T]> {
         self.get_range(level).map(|range| &self.data[range])
     }
@@ -71,11 +77,13 @@ impl<T> Levels<T> {
     }
 
     /// Returns the last element in `indices`.
+    #[must_use]
     pub fn last_idx(&self) -> usize {
         unsafe { *self.indices.last().unwrap_unchecked() }
     }
 
     /// Returns the last level.
+    #[must_use]
     pub fn last(&self) -> &[T] {
         unsafe { self.data.get_unchecked(self.last_idx()..) }
     }
@@ -111,7 +119,7 @@ impl<T> Levels<T> {
 
     /// A generic procedure to build [`Levels`].
     ///
-    /// See [`Self::new`] and [`Self::new_mut`].
+    /// See [`Self::new`] and [`Self::new_mut`] for specific instantiations.
     ///
     /// - `T`: pointer type to a set-like object
     /// - `extend`: a function extending an array with the children of a set `T`
@@ -174,22 +182,23 @@ macro_rules! traits {
 }
 
 impl<T> Levels<T> {
+    /// Iterates over all levels.
+    #[must_use]
     pub fn iter(&self) -> traits!(&[T]) {
         (0..self.rank()).map(|r| unsafe { self.get(r).unwrap_unchecked() })
     }
 
-    /*
+    /// Mutably iterates over all levels.
     pub fn iter_mut(&mut self) -> traits!(&mut [T]) {
         // Safety: these slices are all disjoint.
         let indices = &self.indices;
+        let len = self.data.len();
         let ptr = self.data.as_mut_ptr();
-        (0..self.rank()).map(move |r| unsafe {
-            let start = indices.get_unchecked(r);
-            let end = indices.get(r + 1).copied().unwrap_or(indices.len());
-            std::slice::from_raw_parts_mut(ptr.add(*start), end - start)
+        indices.iter().enumerate().map(move |(r, start)| unsafe {
+            let end = indices.get(r + 1).copied().unwrap_or(len);
+            std::slice::from_raw_parts_mut(ptr.add(*start), end.unchecked_sub(*start))
         })
     }
-    */
 
     /// For each set in a level within [`Levels`], finds the range for its children in the next
     /// level. Allows for a custom cardinality function.
@@ -235,6 +244,7 @@ impl<'a> Levels<&'a Mset> {
 
     /// For each set in a level within [`Levels`], finds the range for its children in the next
     /// level.
+    #[must_use]
     pub fn child_iter(level: &'a [&'a Mset]) -> traits!(Range<usize>) {
         Self::child_iter_gen(level, |s| s.card())
     }
@@ -244,6 +254,7 @@ impl<'a> Levels<&'a Mset> {
     ///
     /// As a small optimization, the second vector in the return value is an empty buffer that can
     /// be reused.
+    #[must_use]
     pub fn mod_ahu(&self, r: usize) -> (Vec<usize>, Vec<usize>) {
         let mut cur = Vec::new();
         if self.rank() <= r {
@@ -280,6 +291,7 @@ impl<'a> Levels<&'a Mset> {
     /// times.
     ///
     /// We check this through a modified [`Ahu`] algorithm.
+    #[must_use]
     pub fn subset(&'a self, other: &'a Self) -> bool {
         let mut fst_cur = Vec::new();
         let mut fst_next = Vec::new();
@@ -384,11 +396,13 @@ pub struct Ahu(#[into_iterator(owned, ref)] BitVec);
 
 impl Ahu {
     /// The empty encoding.
+    #[must_use]
     pub const fn empty() -> Self {
         Self(BitVec::EMPTY)
     }
 
     /// Finds the [`Ahu`] encoding for a multiset.
+    #[must_use]
     pub fn new(set: &Mset) -> Self {
         let levels = Levels::new(set);
         let mut cur = Vec::new();

@@ -456,26 +456,31 @@ impl Set {
     }*/
 
     /// Powerset 2^x.
+    #[must_use]
     pub fn powerset(self) -> Self {
         Self(self.0.powerset())
     }
 
     /// The von Neumann rank of the set.
+    #[must_use]
     pub fn rank(&self) -> usize {
         self.0.rank()
     }
 
     /// The von Neumann set encoding for n.
+    #[must_use]
     pub fn nat(n: usize) -> Self {
         Self(Mset::nat(n))
     }
 
     /// The Zermelo set encoding for n.
+    #[must_use]
     pub fn zermelo(n: usize) -> Self {
         Self(Mset::zermelo(n))
     }
 
     /// The von Neumann hierarchy.
+    #[must_use]
     pub fn neumann(n: usize) -> Self {
         Self(Mset::neumann(n))
     }

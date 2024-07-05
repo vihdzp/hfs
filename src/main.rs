@@ -29,5 +29,5 @@ fn main() {
     let b = Set::nat(3);
     let c = a.clone().inter(b.clone());
 
-    println!("A:     {a}\nB:     {b}\nA ∩ B: {c}")
+    println!("A:     {a}\nB:     {b}\nA ∩ B: {c}");
 }
