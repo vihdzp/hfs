@@ -6,15 +6,15 @@ mod mset;
 
 mod prelude;
 mod set;
-mod tree;
+mod utils;
 use prelude::*;
 
 /// Small vector.
 type SmallVec<T> = smallvec::SmallVec<[T; 8]>;
 
 fn main() {
-    let a: Mset = "{{}, {}, {{}}, {}}".parse().unwrap();
-    // let b = a.clone().powerset().to_set();
+    let a: Mset = "{{}, {}, {{}, {}}, {{}}}".parse().unwrap();
+    let b = a.clone().to_set();
 
-    println!("Set: {a}");
+    println!("Set A: {a}\nSet B: {b}");
 }

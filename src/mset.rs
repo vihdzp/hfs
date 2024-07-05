@@ -1,6 +1,8 @@
 //! Hereditarily finite multisets [`Mset`].
 
-use crate::prelude::*;
+use std::cmp::Ordering;
+
+use crate::{prelude::*, utils::Levels};
 
 /// A hereditarily finite multiset.
 #[derive(Clone, Default, Eq, IntoIterator)]
@@ -47,10 +49,14 @@ impl FromStr for Mset {
     fn from_str(s: &str) -> Result<Self, MsetError> {
         let mut stack = Vec::new();
         let mut iter = s.chars();
+
         loop {
             let c = iter.next().ok_or(MsetError)?;
             match c {
+                // New set.
                 '{' => stack.push(Self::empty()),
+
+                // Close last set.
                 '}' => {
                     let last = stack.pop().ok_or(MsetError)?;
                     if let Some(prev) = stack.last_mut() {
@@ -72,150 +78,80 @@ impl FromStr for Mset {
     }
 }
 
-impl Mset {
-    /// A common method for determining equality / subsets.
-    fn eq_aux(&self, other: &Self, eq: bool) -> bool {
-        // Subdivide the nodes of each set into levels.
-        // Ignore the root node.
-        let mut fst = Vec::new();
-        let mut snd = Vec::new();
-        let mut fst_last = vec![self];
-        let mut snd_last = vec![other];
-        let mut top = true;
-        while !snd_last.is_empty() {
-            let mut fst_cur = Vec::new();
-            let mut snd_cur = Vec::new();
-
-            for &set in &fst_last {
-                for el in set {
-                    fst_cur.push(el);
-                }
-            }
-            for &set in &snd_last {
-                for el in set {
-                    snd_cur.push(el);
-                }
-            }
-
-            // Return false if two levels don't have matching numbers of elements.
-            let cmp = fst_last.len().cmp(&snd_last.len());
-            if (eq && cmp.is_ne()) || (!eq && cmp.is_gt()) {
-                return false;
-            }
-
-            if !top {
-                fst.push(fst_last);
-                snd.push(snd_last);
-            }
-            top = false;
-            fst_last = fst_cur;
-            snd_last = snd_cur;
+/// Two multisets are equal if they contain the same elements the same number of times.
+impl PartialEq for Mset {
+    fn eq(&self, other: &Self) -> bool {
+        if let Some((fst, snd)) =
+            Levels::both(self, other, Vec::extend, |fst, snd| fst.len() == snd.len())
+        {
+            // Since both sets have the same number of hereditary subsets, checking the subset
+            // relation suffices.
+            fst.subset(&snd)
+        } else {
+            false
         }
-
-        // The first set can't have a rank larger than the second.
-        if !fst_last.is_empty() {
-            return false;
-        }
-        // If the rank is at most 1, these checks are enough.
-        let rank = fst_last.len();
-        if rank <= 1 {
-            return true;
-        }
-
-        // Given the sets from the next level (encoded as integers), finds encodings for the sets
-        // in this level.
-        let mut fst_next = vec![0; fst[rank - 1].len()];
-        let mut snd_next = vec![0; snd[rank - 1].len()];
-
-        // Sets found on each level.
-        // Each set gets assigned a unique integer, and a "weighted count".
-        let mut sets = BTreeMap::new();
-        for r in (0..(rank - 1)).rev() {
-            sets.clear();
-
-            // Collect sets from snd.
-            let snd_level = &snd[r];
-            let size = snd_level.len();
-            let mut snd_cur = Vec::with_capacity(size);
-
-            let mut child = 0;
-            for set in snd_level {
-                let mut el = SmallVec::new();
-                for _ in 0..set.card() {
-                    el.push(snd_next[child]);
-                    child += 1;
-                }
-
-                el.sort_unstable();
-                let len = sets.len();
-                // Increase the count for each set.
-                match sets.entry(el) {
-                    Entry::Vacant(entry) => {
-                        entry.insert((len, 0));
-                        snd_cur.push(len);
-                    }
-                    Entry::Occupied(mut entry) => {
-                        let (idx, num) = entry.get_mut();
-                        snd_cur.push(*idx);
-                        *num += 1;
-                    }
-                }
-            }
-
-            // Collect sets from fst.
-            let fst_level = &fst[r];
-            let mut fst_cur = Vec::with_capacity(size);
-
-            child = 0;
-            for set in fst_level {
-                let mut el = SmallVec::new();
-                for _ in 0..set.card() {
-                    el.push(fst_next[child]);
-                    child += 1;
-                }
-
-                el.sort_unstable();
-                // Decrease the count for each set, return false if it reaches a negative.
-                match sets.entry(el) {
-                    Entry::Vacant(_) => return false,
-                    Entry::Occupied(mut entry) => {
-                        let (idx, num) = entry.get_mut();
-                        fst_cur.push(*idx);
-                        if *num == 0 {
-                            entry.remove_entry();
-                        } else {
-                            *num -= 1;
-                        }
-                    }
-                }
-            }
-
-            // sets must be empty at this point.
-            if eq {
-                debug_assert!(sets.is_empty());
-            }
-
-            fst_next = fst_cur;
-            snd_next = snd_cur;
-        }
-
-        true
     }
 }
 
-/// Two multisets are equal when they have the same elements the same amount of times.
-///
-/// We check this through a modified [`Ahu`] algorithm. We first grade the hereditary elements of
-/// both sets. We then compute AHU encodings from the bottom up. If at any level we find a mismatch,
-/// we return `false`. Otherwise, we assign integers to each of our encodings and continue the
-/// process. Our integer assignment makes it so we don't have to compare huge strings.
-///
-/// This algorithm can be easily modified to compute the subset relation, so both are implemented
-/// within the single [`Self::eq_aux`]. See also [`Set::from_mset`](crate::Set::from_mset), which
-/// uses similar ideas.
-impl PartialEq for Mset {
-    fn eq(&self, other: &Self) -> bool {
-        self.eq_aux(other, true)
+/// A multiset is smaller or equal than another when it contains the same elements at most as many
+/// times as the other.
+impl PartialOrd for Mset {
+    fn le(&self, other: &Self) -> bool {
+        if let Some((fst, snd)) =
+            Levels::both(self, other, Vec::extend, |fst, snd| fst.len() <= snd.len())
+        {
+            fst.subset(&snd)
+        } else {
+            false
+        }
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        other.le(self)
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        if let Some((fst, snd)) =
+            Levels::both(self, other, Vec::extend, |fst, snd| fst.len() <= snd.len())
+        {
+            fst.len() < snd.len() && fst.subset(&snd)
+        } else {
+            false
+        }
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        other.lt(self)
+    }
+
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let mut candidate = Ordering::Equal;
+        let levels = Levels::both(self, other, Vec::extend, |fst, snd| {
+            let cmp = fst.len().cmp(&snd.len());
+            if cmp.is_ne() {
+                if candidate.is_eq() {
+                    candidate = cmp;
+                } else if candidate != cmp {
+                    return false;
+                }
+            }
+
+            true
+        });
+
+        if let Some((fst, snd)) = levels {
+            // If the code reaches this point, the candidate ordering is the only possible ordering.
+            let test = match candidate {
+                Ordering::Less | Ordering::Equal => fst.subset(&snd),
+                Ordering::Greater => snd.subset(&fst),
+            };
+
+            if test {
+                return Some(candidate);
+            }
+        }
+
+        None
     }
 }
 
@@ -257,7 +193,7 @@ impl Mset {
 
     /// Subset ⊆.
     pub fn subset(&self, other: &Self) -> bool {
-        self.eq_aux(other, false)
+        self.le(other)
     }
 
     /// Mutable set insertion.
@@ -311,6 +247,11 @@ impl Mset {
         self
     }
 
+    // Set intersection x ∩ y.
+    pub fn intersection(self, other: Self) -> Self {
+        todo!()
+    }
+
     /// Powerset 2^x.
     pub fn powerset(self) -> Self {
         let n = self.card();
@@ -336,20 +277,25 @@ impl Mset {
 
     /// The von Neumann rank of the set.
     pub fn rank(&self) -> usize {
-        if let Some(max) = self.iter().map(Mset::rank).max() {
-            max + 1
-        } else {
-            0
-        }
+        Levels::new(self).rank()
     }
 
-    /// The von Neumann ordinal for n.
+    /// The von Neumann set encoding for n.
     pub fn nat(n: usize) -> Self {
-        let mut res = Vec::new();
+        let mut res = Mset::empty();
         for _ in 0..n {
-            res.push(Self(res.clone()));
+            res.insert_mut(res.clone());
         }
-        Self(res)
+        res
+    }
+
+    /// The Zermelo set encoding for n.
+    pub fn zermelo(n: usize) -> Self {
+        let mut res = Mset::empty();
+        for _ in 0..n {
+            res = res.singleton();
+        }
+        res
     }
 
     /// The von Neumann hierarchy.

@@ -1,6 +1,6 @@
 //! Hereditarily finite sets [`Set`].
 
-use crate::{prelude::*, tree::Levels};
+use crate::{prelude::*, utils::Levels};
 
 /// A set is a multiset that hereditarily has no duplicate elements.
 ///
@@ -41,51 +41,65 @@ impl Display for Set {
 /// A hybrid set, i.e. a multiset of sets.
 //struct Hset(Vec<Set>);
 
+/// Orders and deduplicates a set based on the corresponding keys.
+///
+/// ## Safety
+///
+/// Both `set` and `keys` must have the same number of elements.
+fn dedup_by<T: Default>(
+    set: &mut Vec<T>,
+    keys: &[usize],
+    buf1: &mut Vec<(usize, usize)>,
+    buf2: &mut Vec<T>,
+) {
+    // Deduplicate set of key-value pairs.
+    buf1.clear();
+    buf1.extend(keys.iter().copied().enumerate());
+    buf1.sort_unstable_by_key(|(_, k)| *k);
+    buf1.dedup_by_key(|(_, k)| *k);
+
+    // Add ordered entries to secondary buffer.
+    buf2.clear();
+    for (i, _) in &*buf1 {
+        let el = std::mem::take(&mut set[*i]);
+        buf2.push(el);
+    }
+
+    // Now put them in place.
+    set.clear();
+    set.extend(buf2.drain(..));
+}
+
 impl Set {
     /// Flattens a multiset into a set.
     ///
-    /// This algorithm is similar to the one used for multiset equality / subsets.
+    /// Every hereditary element of `set` is flattened as well, so that we're left with a valid
+    /// [`Set`].
     pub fn from_mset(mut set: Mset) -> Self {
         let levels = Levels::new_mut(&mut set);
 
-        /* // Given the sets from the next level (encoded as integers), finds encodings for the sets
-        // in this level.
-        let rank = levels.len();
-        let mut next = vec![0; levels[rank - 1].len()];
+        let mut cur = Vec::new();
+        let mut next = vec![0; levels.last().len()];
 
-        // Sets found on each level.
-        // Each set gets assigned a unique integer.
+        let mut buf1 = Vec::new();
+        let mut buf2 = Vec::new();
         let mut sets = BTreeMap::new();
-        for level in levels.into_iter().rev().skip(1) {
+        for level in levels.iter().rev().skip(1) {
             sets.clear();
-            let mut cur = Vec::with_capacity(level.len());
 
-            let mut child = 0;
-            for set in level {
-                // Safety: we haven't directly modified this set or its parents, so the dereference
-                // is valid.
-                let set = unsafe { &mut *set };
-                let mut el_idx = SmallVec::new();
-                for i in 0..set.card() {
-                    el_idx.push((i, next[child]));
-                    child += 1;
-                }
+            // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
+            // still valid.
+            let iter = Levels::child_iter_gen(level, |s| unsafe { &*(*s as *const Mset) }.card());
+            for (i, range) in iter.enumerate() {
+                // Deduplicate the set.
+                unsafe {
+                    let set = &mut **level.get_unchecked(i);
+                    dedup_by(&mut set.0, &next.get_unchecked(range), &mut buf1, &mut buf2);
+                };
 
-                // Deduplicate node.
-                el_idx.sort_unstable_by_key(|(_, t)| *t);
-                el_idx.dedup_by_key(|(_, t)| *t);
-                let el: SmallVec<_> = el_idx.iter().map(|(_, t)| *t).collect();
-
-                el_idx.sort_unstable_by_key(|(i, _)| *i);
-                let el_len = el_idx.len();
-                for (j, (i, _)) in el_idx.into_iter().enumerate() {
-                    set.0.swap(i, j);
-                }
-                set.0.truncate(el_len);
-
+                let children = SmallVec::from_iter(buf1.iter().map(|(_, k)| *k));
                 let len = sets.len();
-                // Increase the count for each set.
-                match sets.entry(el) {
+                match sets.entry(children) {
                     Entry::Vacant(entry) => {
                         entry.insert(len);
                         cur.push(len);
@@ -96,11 +110,10 @@ impl Set {
                 }
             }
 
-            next = cur;
+            std::mem::swap(&mut cur, &mut next);
         }
 
-        Self(set)*/
-        todo!()
+        Self(set)
     }
 
     /// Transmutes an [`Mset`] into a [`Set`] without checking that there are no repeated elements.
