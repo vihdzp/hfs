@@ -1,9 +1,19 @@
-//! Utility types and algorithms for working with [`Mset`].
-//!
-//! Most of the content in this file is only used internally.
+//! Utility types and algorithms for working with sets.
 
 use crate::prelude::*;
 use std::ops::Range;
+
+/// Assigns an increasing index to a `key` added to a tree, or returns the existing index.
+pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usize {
+    let len = tree.len();
+    match tree.entry(key) {
+        Entry::Vacant(entry) => {
+            entry.insert(len);
+            len
+        }
+        Entry::Occupied(entry) => *entry.get(),
+    }
+}
 
 /// Represents the multisets at each rank within an [`Mset`], and assigns some data to each.
 ///
@@ -13,7 +23,7 @@ use std::ops::Range;
 /// ## Invariants
 ///
 /// Every [`Levels`] must have a root level with a single node, and no level can be empty.
-pub(crate) struct Levels<T> {
+pub struct Levels<T> {
     /// The i-th element of the array represents the start point for the i-th level in the data
     /// array.
     indices: SmallVec<usize>,
@@ -26,7 +36,7 @@ impl<T> Levels<T> {
     /// Initializes the first level from a set.
     pub fn init(set: T) -> Self {
         Self {
-            indices: smallvec::smallvec![0],
+            indices: smallvec![0],
             data: vec![set],
         }
     }
@@ -55,12 +65,10 @@ impl<T> Levels<T> {
         self.get_range(level).map(|range| &self.data[range])
     }
 
-    /*
     /// Gets the mutable slice corresponding to a given level.
     pub fn get_mut(&mut self, level: usize) -> Option<&mut [T]> {
         self.get_range(level).map(|range| &mut self.data[range])
     }
-    */
 
     /// Returns the last element in `indices`.
     pub fn last_idx(&self) -> usize {
@@ -231,8 +239,47 @@ impl<'a> Levels<&'a Mset> {
         Self::child_iter_gen(level, |s| s.card())
     }
 
+    /// Computes a list of integers representing the distinct elements of the elements in the set at
+    /// a certain level.
+    ///
+    /// As a small optimization, the second vector in the return value is an empty buffer that can
+    /// be reused.
+    pub fn mod_ahu(&self, r: usize) -> (Vec<usize>, Vec<usize>) {
+        let mut cur = Vec::new();
+        if self.rank() <= r {
+            return (Vec::new(), cur);
+        }
+        let mut next = vec![0; self.last().len()];
+
+        let mut sets = BTreeMap::new();
+        for level in self.iter().skip(r).rev().skip(1) {
+            sets.clear();
+            cur.clear();
+
+            for range in Levels::child_iter(level) {
+                let slice = unsafe {
+                    let slice = next.get_unchecked_mut(range);
+                    slice.sort_unstable();
+                    slice as &[_]
+                };
+
+                cur.push(btree_index(
+                    &mut sets,
+                    slice.iter().copied().collect::<SmallVec<_>>(),
+                ));
+            }
+
+            std::mem::swap(&mut cur, &mut next);
+        }
+
+        cur.clear();
+        (next, cur)
+    }
+
     /// Returns whether `self` is a subset of `other`, meaning it contains each set at least as many
-    /// times. We check this through a modified [`Ahu`] algorithm.
+    /// times.
+    ///
+    /// We check this through a modified [`Ahu`] algorithm.
     pub fn subset(&'a self, other: &'a Self) -> bool {
         let mut fst_cur = Vec::new();
         let mut fst_next = Vec::new();
@@ -323,11 +370,15 @@ impl<'a> Levels<*mut Mset> {
 /// Conceptually, this amounts to hereditarily lexicographically ordered set-builder notation. In
 /// fact, the [`Display`] implementation for [`Mset`] constructs an [`Ahu`] first.
 ///
-/// The issue with this encoding is that after the first few levels, it becomes expensive to store
-/// and compare all of the partial encodings. As such, instead of computing the full AHU encoding,
-/// we often opt for a modified encoding, where at each step, each unique multiset is assigned a
-/// single integer instead of the full string. This "modified" AHU encoding does not determine
-/// multisets uniquely, but it can uniquely determine multisets within a single multiset.
+/// ## Modified AHU algorithm
+///
+/// A practical issue with the AHU encoding is that after the first few levels, it becomes expensive
+/// to store and compare all of the partial encodings. As such, instead of computing the full AHU
+/// encoding, we often opt for a modified encoding, where at each step, each unique multiset is
+/// assigned a single integer instead of the full string. This "modified" AHU encoding does not
+/// determine multisets uniquely, but it can uniquely determine multisets within a single multiset.
+///
+/// See [`Levels::mod_ahu`] for an implementation.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, IntoIterator)]
 pub struct Ahu(#[into_iterator(owned, ref)] BitVec);
 
@@ -345,22 +396,27 @@ impl Ahu {
 
         for level in levels.iter().rev() {
             cur.clear();
+
             for range in Levels::child_iter(level) {
                 let start = range.start;
                 if range.is_empty() {
                     cur.push(BitVec::new());
                 } else {
-                    next[range.clone()].sort_unstable();
+                    unsafe { next.get_unchecked_mut(range.clone()) }.sort_unstable();
 
                     // Reuse buffer.
                     // Add enclosing parentheses.
-                    let mut buf: BitVec<_, _> = std::mem::take(&mut next[start]);
-                    buf.push(false); // )
+                    let fst = unsafe { next.get_unchecked_mut(start) };
+                    let mut buf: BitVec<_, _> = std::mem::take(fst);
+
+                    // Closing parenthesis.
+                    buf.push(false);
                     buf.push(false);
                     buf.shift_right(1);
-                    buf.set(0, true); // (
+                    buf.set(0, true);
+                    // Opening parenthesis.
 
-                    for set in next[range].iter().skip(1) {
+                    for set in unsafe { next.get_unchecked_mut(range) }.iter().skip(1) {
                         buf.push(true);
                         buf.extend(set);
                         buf.push(false);
@@ -372,7 +428,8 @@ impl Ahu {
             std::mem::swap(&mut cur, &mut next);
         }
 
-        Self(next.pop().unwrap())
+        // Safety: the root note in `Levels` always exists.
+        Self(unsafe { next.pop().unwrap_unchecked() })
     }
 }
 

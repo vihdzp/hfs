@@ -1,5 +1,7 @@
 //! Hereditarily finite sets [`Set`].
 
+use std::mem::ManuallyDrop;
+
 use crate::prelude::*;
 
 /// A set is a multiset that hereditarily has no duplicate elements.
@@ -8,7 +10,7 @@ use crate::prelude::*;
 ///
 /// Every two elements in a [`Set`] must be distinct. Moreover, every element must satisfy this same
 /// guarantee.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, PartialOrd)]
 #[repr(transparent)]
 pub struct Set(Mset);
 
@@ -36,17 +38,18 @@ impl Display for Set {
     }
 }
 
-// impl iterator.
-
-/// A hybrid set, i.e. a multiset of sets.
-//struct Hset(Vec<Set>);
+/// Transmute [`Vec<Set>`] into [`Vec<Mset>`].
+fn cast_vec(vec: Vec<Set>) -> Vec<Mset> {
+    let mut vec = ManuallyDrop::new(vec);
+    unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
+}
 
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
 /// ## Safety
 ///
 /// Both `set` and `keys` must have the same number of elements.
-fn dedup_by<T: Default>(
+unsafe fn dedup_by<T: Default>(
     set: &mut Vec<T>,
     keys: &[usize],
     buf1: &mut Vec<(usize, usize)>,
@@ -61,7 +64,7 @@ fn dedup_by<T: Default>(
     // Add ordered entries to secondary buffer.
     buf2.clear();
     for (i, _) in &*buf1 {
-        let el = std::mem::take(&mut set[*i]);
+        let el = std::mem::take(set.get_unchecked_mut(*i));
         buf2.push(el);
     }
 
@@ -71,13 +74,9 @@ fn dedup_by<T: Default>(
 }
 
 impl Set {
-    /// Flattens a multiset into a set.
-    ///
-    /// Every hereditary element of `set` is flattened as well, so that we're left with a valid
-    /// [`Set`].
+    /// Flattens a multiset into a set hereditarily.
     pub fn from_mset(mut set: Mset) -> Self {
         let levels = Levels::new_mut(&mut set);
-
         let mut cur = Vec::new();
         let mut next = vec![0; levels.last().len()];
 
@@ -86,6 +85,7 @@ impl Set {
         let mut sets = BTreeMap::new();
         for level in levels.iter().rev().skip(1) {
             sets.clear();
+            cur.clear();
 
             // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
             // still valid.
@@ -97,17 +97,10 @@ impl Set {
                     dedup_by(&mut set.0, next.get_unchecked(range), &mut buf1, &mut buf2);
                 };
 
-                let children: SmallVec<_> = buf1.iter().map(|(_, k)| *k).collect();
-                let len = sets.len();
-                match sets.entry(children) {
-                    Entry::Vacant(entry) => {
-                        entry.insert(len);
-                        cur.push(len);
-                    }
-                    Entry::Occupied(entry) => {
-                        cur.push(*entry.get());
-                    }
-                }
+                cur.push(btree_index(
+                    &mut sets,
+                    buf1.iter().map(|(_, k)| *k).collect::<SmallVec<_>>(),
+                ));
             }
 
             std::mem::swap(&mut cur, &mut next);
@@ -129,54 +122,34 @@ impl Set {
 
 impl Mset {
     /// Checks whether the multiset is in fact a set. This property is checked hereditarily.
+    ///
+    /// See also [`Self::into_set`].
     pub fn is_set(&self) -> bool {
-        // Subdivide the nodes of the set into levels.
-        let mut levels = Vec::new();
-        let mut last = vec![self];
-        while !last.is_empty() {
-            let mut cur = Vec::new();
+        let levels = Levels::new(self);
+        let mut cur = Vec::new();
+        let mut next = vec![0; levels.last().len()];
 
-            for &set in &last {
-                for el in set {
-                    cur.push(el);
-                }
-            }
-
-            levels.push(last);
-            last = cur;
-        }
-
-        // Given the sets from the next level (encoded as integers), finds encodings for the sets
-        // in this level.
-        let rank = levels.len();
-        let mut next = vec![0; levels[rank - 1].len()];
-
-        // Sets found on each level.
-        // Each set gets assigned a unique integer.
         let mut sets = BTreeMap::new();
-        for level in levels.into_iter().rev().skip(1) {
+        for level in levels.iter().rev().skip(1) {
             sets.clear();
-            let mut cur = Vec::with_capacity(level.len());
+            cur.clear();
 
-            let mut child = 0;
-            for set in level {
-                let mut el = SmallVec::new();
-                for _ in 0..set.card() {
-                    el.push(next[child]);
-                    child += 1;
+            for range in Levels::child_iter(level) {
+                let slice = unsafe {
+                    let slice = next.get_unchecked_mut(range);
+                    slice.sort_unstable();
+                    slice as &[_]
+                };
+
+                for i in 1..slice.len() {
+                    if slice[i - 1] == slice[i] {
+                        return false;
+                    }
                 }
 
-                // Check for duplicates.
-                el.sort_unstable();
-                let el_len = el.len();
-                el.dedup();
-                if el.len() != el_len {
-                    return false;
-                }
-
+                let children: SmallVec<usize> = slice.iter().copied().collect();
                 let len = sets.len();
-                // Increase the count for each set.
-                match sets.entry(el) {
+                match sets.entry(children) {
                     Entry::Vacant(entry) => {
                         entry.insert(len);
                         cur.push(len);
@@ -187,7 +160,7 @@ impl Mset {
                 }
             }
 
-            next = cur;
+            std::mem::swap(&mut cur, &mut next);
         }
 
         true
@@ -200,7 +173,7 @@ impl Mset {
         Set::from_mset(self)
     }
 
-    /// Transmutes an [`Mset`] into a [`Set`] without checking that there are no repeated elements.
+    /// Transmutes an [`Mset`] into a [`Set`] without checking the type invariants.
     ///
     /// ## Safety
     ///
@@ -209,8 +182,24 @@ impl Mset {
         Set::from_mset_unchecked(self)
     }
 
+    /// Transmutes a [`Mset`] reference into a [`Set`] reference without checking the type
+    /// invariants.
+    ///
+    /// ## Safety
+    ///
+    /// See [`Set::from_mset_unchecked`].
     pub unsafe fn as_set(&self) -> &Set {
         unsafe { &*(std::ptr::from_ref(self).cast()) }
+    }
+
+    /// Transmutes a [`Mset`] mutable reference into a [`Set`] mutable reference without checking
+    /// the type invariants.
+    ///
+    /// ## Safety
+    ///
+    /// See [`Set::from_mset_unchecked`].
+    pub unsafe fn as_set_mut(&mut self) -> &mut Set {
+        unsafe { &mut *(std::ptr::from_mut(self).cast()) }
     }
 }
 
@@ -225,6 +214,60 @@ impl TryFrom<Mset> for Set {
     }
 }
 
+/// An auxiliary type to map [`Mset`] to [`Set`] within iterators.
+pub struct Cast<I>(I);
+
+impl Iterator for Cast<std::vec::IntoIter<Mset>> {
+    type Item = Set;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(Set)
+    }
+}
+
+impl<'a> Iterator for Cast<std::slice::Iter<'a, Mset>> {
+    type Item = &'a Set;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|s| unsafe { s.as_set() })
+    }
+}
+
+impl<'a> Iterator for Cast<std::slice::IterMut<'a, Mset>> {
+    type Item = &'a mut Set;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|s| unsafe { s.as_set_mut() })
+    }
+}
+
+impl IntoIterator for Set {
+    type Item = Set;
+    type IntoIter = Cast<std::vec::IntoIter<Mset>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Cast(self.0.into_iter())
+    }
+}
+
+impl<'a> IntoIterator for &'a Set {
+    type Item = &'a Set;
+    type IntoIter = Cast<std::slice::Iter<'a, Mset>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Cast(self.0.iter())
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Set {
+    type Item = &'a mut Set;
+    type IntoIter = Cast<std::slice::IterMut<'a, Mset>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Cast(self.0.iter_mut())
+    }
+}
+
 impl Set {
     /// Returns a reference to the underlying multiset.
     pub const fn mset(&self) -> &Mset {
@@ -236,9 +279,14 @@ impl Set {
         Self(Mset::empty())
     }
 
-    /// Returns whether the multiset is finite.
+    /// Returns whether the set is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Clears the set.
+    pub fn clear(&mut self) {
+        self.0.clear()
     }
 
     /// Set cardinality.
@@ -246,9 +294,14 @@ impl Set {
         self.0.card()
     }
 
-    /// An iterator over the elements of the [`Mset`].
-    pub fn iter(&self) -> std::slice::Iter<Mset> {
-        self.0.iter()
+    /// An iterator over the elements of the [`Set`].
+    pub fn iter(&self) -> Cast<std::slice::Iter<Mset>> {
+        self.into_iter()
+    }
+
+    /// A mutable iterator over the elements of the [`Set`].
+    pub fn iter_mut(&mut self) -> Cast<std::slice::IterMut<Mset>> {
+        self.into_iter()
     }
 
     /// Finds the [`Ahu`] encoding for a set.
@@ -321,23 +374,85 @@ impl Set {
         self.0.big_union().into_set()
     }
 
+    /// Set union ∪x.
+    pub fn big_union_vec(vec: Vec<Self>) -> Self {
+        let union: Vec<Mset> = vec.into_iter().flatten().map(Into::into).collect();
+        Mset(union).into_set()
+    }
+
     /// Mutable set specification.
-    /*pub fn select_mut<P: FnMut(&Set) -> bool>(&mut self, pred: P) {
-        self.0.select_mut(pred);
-    }*/
+    pub fn select_mut<P: FnMut(&Set) -> bool>(&mut self, mut pred: P) {
+        self.0.select_mut(|set| pred(unsafe { set.as_set() }));
+    }
 
     /// Set specification.
-    /*  pub fn select<P: FnMut(&Mset) -> bool>(mut self, mut pred: P) -> Self {
-        let mut i = 0;
-        while i < self.card() {
-            if pred(&self.0[i]) {
-                i += 1;
-            } else {
-                self.0.swap_remove(i);
+    pub fn select<P: FnMut(&Set) -> bool>(mut self, pred: P) -> Self {
+        self.select_mut(pred);
+        self
+    }
+
+    /// Set intersection x ∩ y.
+    ///
+    /// This is a modified version of [`Mset::inter`].
+    pub fn inter(self, other: Self) -> Self {
+        let idx = self.card();
+        let mut pair = self.0.pair(other.0);
+        let levels = Levels::new(&pair);
+
+        // The intersection of two empty sets is empty.
+        let elements;
+        if let Some(els) = levels.get(2) {
+            elements = els;
+        } else {
+            return Self::empty();
+        }
+
+        // We store the indices of the sets in the intersection.
+        let (mut next, mut indices) = levels.mod_ahu(3);
+
+        let mut sets = BTreeMap::new();
+        for (i, range) in Levels::child_iter(elements).enumerate() {
+            let slice = unsafe {
+                let slice = next.get_unchecked_mut(range);
+                slice.sort_unstable();
+                slice as &[_]
+            };
+
+            // Each entry stores the index where it's found within the first set.
+            let children: SmallVec<_> = slice.iter().copied().collect();
+            match sets.entry(children) {
+                Entry::Vacant(entry) => {
+                    if i < idx {
+                        entry.insert(i);
+                    }
+                }
+                Entry::Occupied(entry) => {
+                    debug_assert!(i >= idx);
+                    indices.push(entry.remove());
+                }
             }
         }
 
-        self
+        let mut snd = unsafe { pair.0.pop().unwrap_unchecked() };
+        let mut fst = unsafe { pair.0.pop().unwrap_unchecked() };
+        snd.clear();
+
+        for i in indices {
+            let set = std::mem::take(unsafe { fst.0.get_unchecked_mut(i) });
+            snd.insert_mut(set);
+        }
+
+        Self(snd)
+    }
+
+    /*  /// Set intersection ∩x.
+    pub fn big_inter(self) -> Option<Self> {
+        Self(self.0.big_inter())
+    }
+
+    /// Set intersection ∩x.
+    pub fn big_inter_vec(vec: Vec<Self>) -> Self {
+        Self(Mset::big_inter(cast_vec(vec)))
     }*/
 
     /// Powerset 2^x.
@@ -350,9 +465,14 @@ impl Set {
         self.0.rank()
     }
 
-    /// The von Neumann ordinal for n.
+    /// The von Neumann set encoding for n.
     pub fn nat(n: usize) -> Self {
         Self(Mset::nat(n))
+    }
+
+    /// The Zermelo set encoding for n.
+    pub fn zermelo(n: usize) -> Self {
+        Self(Mset::zermelo(n))
     }
 
     /// The von Neumann hierarchy.

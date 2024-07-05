@@ -1,8 +1,7 @@
 //! Hereditarily finite multisets [`Mset`].
 
-use std::cmp::Ordering;
-
 use crate::prelude::*;
+use std::cmp::Ordering;
 
 /// A hereditarily finite multiset.
 #[derive(Clone, Default, Eq, IntoIterator)]
@@ -161,9 +160,14 @@ impl Mset {
         Self(Vec::new())
     }
 
-    /// Returns whether the multiset is finite.
+    /// Returns whether the multiset is empty.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Clears the multiset.
+    pub fn clear(&mut self) {
+        self.0.clear()
     }
 
     /// Set cardinality.
@@ -173,12 +177,12 @@ impl Mset {
 
     /// An iterator over the elements of the [`Mset`].
     pub fn iter(&self) -> std::slice::Iter<Mset> {
-        self.0.iter()
+        self.into_iter()
     }
 
     /// A mutable iterator over the elements of the [`Mset`].
     pub fn iter_mut(&mut self) -> std::slice::IterMut<Mset> {
-        self.0.iter_mut()
+        self.into_iter()
     }
 
     /// Finds the [`Ahu`] encoding for a multiset.
@@ -247,9 +251,61 @@ impl Mset {
         self
     }
 
-    // Set intersection x ∩ y.
-    pub fn intersection(self, _other: &Self) -> Self {
-        todo!()
+    /// Set intersection x ∩ y.
+    pub fn inter(self, other: Self) -> Self {
+        let idx = self.card();
+        let mut pair = self.pair(other);
+        let levels = Levels::new(&pair);
+
+        // The intersection of two empty sets is empty.
+        let elements;
+        if let Some(els) = levels.get(2) {
+            elements = els;
+        } else {
+            return Self::empty();
+        }
+
+        // We store the indices of the sets in the intersection.
+        let (mut next, mut indices) = levels.mod_ahu(3);
+
+        let mut sets: BTreeMap<_, SmallVec<_>> = BTreeMap::new();
+        for (i, range) in Levels::child_iter(elements).enumerate() {
+            let slice = unsafe {
+                let slice = next.get_unchecked_mut(range);
+                slice.sort_unstable();
+                slice as &[_]
+            };
+
+            // Each entry stores the indices where it's found within the first set.
+            let children: SmallVec<_> = slice.iter().copied().collect();
+            match sets.entry(children) {
+                Entry::Vacant(entry) => {
+                    if i < idx {
+                        entry.insert(smallvec![i]);
+                    }
+                }
+                Entry::Occupied(mut entry) => {
+                    if i < idx {
+                        entry.get_mut().push(i);
+                    } else {
+                        if let Some(j) = entry.get_mut().pop() {
+                            indices.push(j);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut snd = unsafe { pair.0.pop().unwrap_unchecked() };
+        let mut fst = unsafe { pair.0.pop().unwrap_unchecked() };
+        snd.clear();
+
+        for i in indices {
+            let set = std::mem::take(unsafe { fst.0.get_unchecked_mut(i) });
+            snd.insert_mut(set);
+        }
+
+        snd
     }
 
     /// Powerset 2^x.
@@ -310,5 +366,47 @@ impl Mset {
             set = set.powerset();
         }
         set
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NATS: [&str; 4] = ["{}", "{{}}", "{{}, {{}}}", "{{}, {{}}, {{}, {{}}}}"];
+
+    /// Verify round-trip between set and string.
+    fn roundtrip(set: Mset, str: &str) {
+        assert_eq!(set.to_string(), str);
+        assert_eq!(set, str.parse().unwrap());
+    }
+
+    #[test]
+    fn empty() {
+        roundtrip(Mset::empty(), "{}")
+    }
+
+    #[test]
+    fn singleton() {
+        roundtrip(Mset::empty().singleton(), "{{}}")
+    }
+
+    #[test]
+    fn pair() {
+        let set = Mset::empty();
+        roundtrip(set.clone().pair(set), "{{}, {}}")
+    }
+
+    #[test]
+    fn nat() {
+        for n in 0..4 {
+            roundtrip(Mset::nat(n), NATS[n])
+        }
+    }
+
+    #[test]
+    fn union() {
+        let set = Mset::nat(2).union(Mset::nat(3));
+        roundtrip(set, "{{}, {}, {{}}, {{}}, {{}, {{}}}}")
     }
 }
