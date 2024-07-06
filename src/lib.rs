@@ -4,7 +4,6 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::missing_docs_in_private_items)]
-#![warn(clippy::undocumented_unsafe_blocks)]
 
 pub mod mset;
 pub mod prelude;
@@ -59,7 +58,7 @@ pub trait SetTrait:
     + Display
     + Eq
     + Into<Vec<Self>>
-    + IntoIterator
+    + IntoIterator<Item = Self>
     + PartialOrd
 {
     // -------------------- Basic methods -------------------- //
@@ -126,6 +125,17 @@ pub trait SetTrait:
         self.singleton().insert(other)
     }
 
+    /// Union x ∪ y.
+    fn union(self, other: Self) -> Self;
+
+    /// Union over an iterator.
+    fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self;
+
+    /// Union ∪x.
+    fn big_union(self) -> Self {
+        Self::union_iter(self)
+    }
+
     /// Powerset P(x).
     fn powerset(self) -> Self;
 
@@ -146,6 +156,10 @@ pub trait SetTrait:
     /// correspond to a set or a multiset.
     ///
     /// See [`Levels::subset_gen`].
+    ///
+    /// ## Safety
+    ///
+    /// Each of the levels must have been validly built from a set of type `Self`.
     unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool;
 
     /// Subset relation ⊆.
@@ -183,6 +197,7 @@ pub trait SetTrait:
     }
 }
 
+/// Implements [`PartialOrd`] for [`SetTrait`].
 macro_rules! impl_partial_ord {
     ($t: ty) => {
         impl PartialEq for $t {

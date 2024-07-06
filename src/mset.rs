@@ -140,6 +140,15 @@ impl SetTrait for Mset {
         }
     }
 
+    fn union(mut self, mut other: Self) -> Self {
+        self.0.append(&mut other.0);
+        self
+    }
+
+    fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
+        iter.into_iter().flatten().collect()
+    }
+
     fn powerset(self) -> Self {
         let n = self.card();
         let mut powerset = Self::empty().singleton();
@@ -229,7 +238,7 @@ impl SetTrait for Mset {
     }
 }
 
-// -------------------- Constructions -------------------- //
+// -------------------- Other -------------------- //
 
 impl Mset {
     /// The set as a mutable slice.
@@ -252,22 +261,8 @@ impl Mset {
         self.0.iter_mut()
     }
 
-    /// Union x ∪ y.
-    #[must_use]
-    pub fn union(mut self, other: Self) -> Self {
-        self.0.extend(other);
-        self
-    }
-
-    /// Union ∪x.
-    #[must_use]
-    pub fn big_union(self) -> Self {
-        self.into_iter().flatten().collect()
-    }
-
     /*
     /// Intersection x ∩ y.
-    #[must_use]
     pub fn disjoint(&self, other: &Self) -> bool {
         // Check for empty multiset.
         let idx = self.card();
@@ -321,7 +316,6 @@ impl Mset {
     } */
 
     /// Intersection x ∩ y.
-    #[must_use]
     pub fn inter(mut self, mut other: Self) -> Self {
         // Check for empty multisets.
         let idx = self.card();
