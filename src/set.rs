@@ -167,6 +167,7 @@ impl Mset {
     }
 
     /// Transmutes an [`Mset`] into a [`Set`], first checking the type invariants.
+    #[must_use]
     pub fn into_set_checked(self) -> Option<Set> {
         if self.is_set() {
             Some(Set(self))
@@ -268,6 +269,8 @@ impl IntoIterator for Set {
     }
 }
 
+// The `iter` function is defined in SetTrait.
+#[allow(clippy::into_iter_without_iter)]
 impl<'a> IntoIterator for &'a Set {
     type Item = &'a Set;
     type IntoIter = Cast<std::slice::Iter<'a, Mset>>;
@@ -321,6 +324,14 @@ impl SetTrait for Set {
     fn select_mut<P: FnMut(&Set) -> bool>(&mut self, mut pred: P) {
         self.0
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
+    }
+
+    fn union(self, other: Self) -> Self {
+        self.0.union(other.0).into_set()
+    }
+
+    fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
+        Mset::union_iter(iter.into_iter().map(Into::into)).into_set()
     }
 
     fn powerset(self) -> Self {
@@ -378,6 +389,7 @@ impl Set {
     }
 
     /// A reference to the inner vector.
+    #[must_use]
     pub fn as_vec(&self) -> &Vec<Mset> {
         &self.0 .0
     }

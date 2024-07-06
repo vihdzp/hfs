@@ -247,6 +247,7 @@ impl Mset {
     }
 
     /// A reference to the inner vector.
+    #[must_use]
     pub fn as_vec(&self) -> &Vec<Self> {
         &self.0
     }
@@ -316,6 +317,7 @@ impl Mset {
     } */
 
     /// Intersection x ∩ y.
+    #[must_use]
     pub fn inter(mut self, mut other: Self) -> Self {
         // Check for empty multisets.
         let idx = self.card();

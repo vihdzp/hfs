@@ -100,12 +100,14 @@ pub trait SetTrait:
     fn empty() -> Self;
 
     /// Singleton set {x}.
+    #[must_use]
     fn singleton(self) -> Self;
 
     /// In-place set insertion x ∪ {y}.
     fn insert_mut(&mut self, set: Self);
 
     /// Set insertion x ∪ {y}.
+    #[must_use]
     fn insert(mut self, set: Self) -> Self {
         self.insert_mut(set);
         self
@@ -115,28 +117,33 @@ pub trait SetTrait:
     fn select_mut<P: FnMut(&Self) -> bool>(&mut self, pred: P);
 
     /// Set specification.
+    #[must_use]
     fn select<P: FnMut(&Self) -> bool>(mut self, pred: P) -> Self {
         self.select_mut(pred);
         self
     }
 
     /// Set pair {x, y}.
+    #[must_use]
     fn pair(self, other: Self) -> Self {
         self.singleton().insert(other)
     }
 
     /// Union x ∪ y.
+    #[must_use]
     fn union(self, other: Self) -> Self;
 
     /// Union over an iterator.
     fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self;
 
     /// Union ∪x.
+    #[must_use]
     fn big_union(self) -> Self {
         Self::union_iter(self)
     }
 
     /// Powerset P(x).
+    #[must_use]
     fn powerset(self) -> Self;
 
     /// The von Neumann encoding for a natural.
