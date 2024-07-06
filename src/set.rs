@@ -140,18 +140,11 @@ impl Mset {
             sets.clear();
             cur.clear();
 
-            for range in Levels::child_iter(level) {
-                let slice = unsafe {
-                    let slice = next.get_unchecked_mut(range);
-                    slice.sort_unstable();
-                    slice as &[_]
-                };
-
+            for slice in unsafe { Levels::child_iter_mut(level, &mut next) } {
                 // Find duplicate elements.
-                for i in 1..slice.len() {
-                    if slice[i - 1] == slice[i] {
-                        return false;
-                    }
+                slice.sort_unstable();
+                if has_consecutive(slice) {
+                    return false;
                 }
 
                 cur.push(btree_index(
@@ -231,9 +224,24 @@ impl Mset {
     }
 }
 
+impl Set {
+    fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
+        unsafe { crate::transmute_vec(vec) }
+    }
+
+    /*fn dedup(vec: Vec<Self>) -> Self {
+
+    }*/
+}
+
 // -------------------- Iterators -------------------- //
 
 /// An auxiliary type to map [`Mset`] to [`Set`] within iterators.
+///
+/// ## Invariants
+///
+/// This can only be used with iterators coming from a [`Set`]. Note that this is guaranteed by all
+/// of the public methods that generate this type.
 pub struct Cast<I>(I);
 
 impl Iterator for Cast<std::vec::IntoIter<Mset>> {
@@ -299,6 +307,10 @@ impl SetTrait for Set {
     fn as_slice(&self) -> &[Self] {
         let slice = self.0.as_slice();
         unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
+    }
+
+    fn as_vec(&self) -> &Vec<Mset> {
+        self.0.as_vec()
     }
 
     fn clear(&mut self) {
@@ -368,6 +380,38 @@ impl SetTrait for Set {
             },
         )
     }
+
+    fn disjoint(&self, other: &Self) -> bool {
+        Self::disjoint_pairwise([self, other])
+    }
+
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        // Empty sets are disjoint.
+        let levels = Levels::init_iter(iter.into_iter().map(AsRef::as_ref)).fill();
+        if levels.level_len() <= 1 {
+            return true;
+        }
+
+        let elements = unsafe { levels.get(2).unwrap_unchecked() };
+        let mut mod_ahu = levels.mod_ahu(2);
+        let mut sets = BTreeSet::new();
+
+        for slice in unsafe { Levels::child_iter_mut(elements, &mut mod_ahu.next) } {
+            slice.sort_unstable();
+            let children: SmallVec<_> = slice.iter().copied().collect();
+
+            // Find duplicate elements.
+            if !sets.insert(children) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        todo!()
+    }
 }
 
 impl Set {
@@ -386,12 +430,6 @@ impl Set {
     pub unsafe fn as_slice_mut(&mut self) -> &mut [Self] {
         let slice = self.0.as_slice_mut();
         unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
-    }
-
-    /// A reference to the inner vector.
-    #[must_use]
-    pub fn as_vec(&self) -> &Vec<Mset> {
-        &self.0 .0
     }
 
     /// A mutable reference to the inner vector.
@@ -425,8 +463,7 @@ impl Set {
         self.0.insert_mut(other.0);
     }
 
-    /// Set insertion x ∪ {y}. Does not check whether the set being inserted is already in
-    /// the set.
+    /// Set insertion x ∪ {y}. Does not check whether the set being inserted is already in the set.
     ///
     /// ## Safety
     ///
@@ -474,18 +511,16 @@ impl Set {
         let elements = unsafe { levels.get(1).unwrap_unchecked() };
 
         // We store the indices of the sets in the intersection.
-        let (mut next, mut indices) = levels.mod_ahu(2);
+        let mod_ahu = levels.mod_ahu(2);
+        let mut next = mod_ahu.next;
+        let mut indices = mod_ahu.buffer;
 
+        // Each entry stores the index where it's found within the first set.
         let mut sets = BTreeMap::new();
-        for (i, range) in Levels::child_iter(elements).enumerate() {
-            let slice = unsafe {
-                let slice = next.get_unchecked_mut(range);
-                slice.sort_unstable();
-                slice as &[_]
-            };
-
-            // Each entry stores the index where it's found within the first set.
+        for (i, slice) in unsafe { Levels::child_iter_mut(elements, &mut next) }.enumerate() {
+            slice.sort_unstable();
             let children: SmallVec<_> = slice.iter().copied().collect();
+
             match sets.entry(children) {
                 Entry::Vacant(entry) => {
                     if i < idx {

@@ -10,7 +10,7 @@ pub use crate::{
 
 // Convenient imports within the crate.
 pub(crate) use crate::{
-    smallvec,
+    has_consecutive, smallvec,
     utils::{btree_index, Levels},
     SmallVec,
 };
@@ -18,7 +18,7 @@ pub(crate) use bitvec::prelude::*;
 pub(crate) use derive_more::IntoIterator;
 pub(crate) use std::{
     cmp::Ordering,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
     fmt::{Debug, Display, Formatter, Result as FmtResult, Write},
     str::FromStr,
 };

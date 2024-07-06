@@ -42,6 +42,11 @@ unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
     unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
 }
 
+/// Whether a slice has consecutive elements.
+fn has_consecutive<T: PartialEq>(slice: &[T]) -> bool {
+    (1..slice.len()).any(|i| slice[i - 1] == slice[i])
+}
+
 /// A seal for [`SetTrait`], avoiding foreign implementations.
 trait Seal {}
 
@@ -65,6 +70,11 @@ pub trait SetTrait:
 
     /// The set as a slice.
     fn as_slice(&self) -> &[Self];
+
+    /// A reference to the inner vector.
+    ///
+    /// Note that internally, both kinds of set store [`Mset`].
+    fn as_vec(&self) -> &Vec<Mset>;
 
     /// Removes all elements from the set.
     fn clear(&mut self);
@@ -202,6 +212,23 @@ pub trait SetTrait:
             fst.level_len() == snd.level_len() && unsafe { Self::_levels_subset(&fst, &snd) }
         })
     }
+
+    /// Checks whether two sets are disjoint.
+    fn disjoint(&self, other: &Self) -> bool;
+
+    /// Checks whether a list of sets are disjoint.
+    ///
+    /// For pairwise disjoint sets, see [`SetTrait::disjoint_pairwise`].
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool
+    where
+        Self: 'a;
+
+    /// Checks whether a list of sets are pairwise disjoint.
+    ///
+    /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_iter`].
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool
+    where
+        Self: 'a;
 }
 
 /// Implements [`PartialOrd`] for [`SetTrait`].

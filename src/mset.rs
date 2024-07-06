@@ -111,6 +111,10 @@ impl SetTrait for Mset {
         &self.0
     }
 
+    fn as_vec(&self) -> &Vec<Mset> {
+        &self.0
+    }
+
     fn clear(&mut self) {
         self.0.clear();
     }
@@ -236,6 +240,18 @@ impl SetTrait for Mset {
             },
         )
     }
+
+    fn disjoint(&self, _other: &Self) -> bool {
+        todo!()
+    }
+
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
+        todo!()
+    }
+
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
+        todo!()
+    }
 }
 
 // -------------------- Other -------------------- //
@@ -244,12 +260,6 @@ impl Mset {
     /// The set as a mutable slice.
     pub fn as_slice_mut(&mut self) -> &mut [Self] {
         &mut self.0
-    }
-
-    /// A reference to the inner vector.
-    #[must_use]
-    pub fn as_vec(&self) -> &Vec<Self> {
-        &self.0
     }
 
     /// A mutable reference to the inner vector.
@@ -329,18 +339,16 @@ impl Mset {
         let elements = unsafe { levels.get(1).unwrap_unchecked() };
 
         // We store the indices of the sets in the intersection.
-        let (mut next, mut indices) = levels.mod_ahu(2);
+        let mod_ahu = levels.mod_ahu(2);
+        let mut next = mod_ahu.next;
+        let mut indices = mod_ahu.buffer;
 
+        // Each entry stores the indices where it's found within the first multiset.
         let mut sets: BTreeMap<_, SmallVec<_>> = BTreeMap::new();
-        for (i, range) in Levels::child_iter(elements).enumerate() {
-            let slice = unsafe {
-                let slice = next.get_unchecked_mut(range);
-                slice.sort_unstable();
-                slice as &[_]
-            };
-
-            // Each entry stores the indices where it's found within the first multiset.
+        for (i, slice) in unsafe { Levels::child_iter_mut(elements, &mut next) }.enumerate() {
+            slice.sort_unstable();
             let children: SmallVec<_> = slice.iter().copied().collect();
+
             match sets.entry(children) {
                 Entry::Vacant(entry) => {
                     if i < idx {
