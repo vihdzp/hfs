@@ -1,11 +1,29 @@
 //! Hereditarily finite multisets [`Mset`].
 
 use crate::prelude::*;
-use std::cmp::Ordering;
 
-/// A hereditarily finite multiset.
+/// A [hereditarily finite](https://en.wikipedia.org/wiki/Hereditarily_finite_set)
+/// [multiset](https://en.wikipedia.org/wiki/Multiset).
+///
+/// Each [`Mset`] contains only a `Vec` of [`Mset`]. Rust's ownership system guarantees that [quine
+/// atoms](https://en.wikipedia.org/wiki/Urelement#Quine_atoms), or any other non-regular multisets
+/// cannot exist. In other words, a multiset can't contain itself.
 #[derive(Clone, Default, Eq, IntoIterator)]
 pub struct Mset(#[into_iterator(owned, ref, ref_mut)] pub Vec<Mset>);
+
+// -------------------- Basic traits -------------------- //
+
+impl AsRef<Mset> for Mset {
+    fn as_ref(&self) -> &Mset {
+        self
+    }
+}
+
+impl From<Mset> for Vec<Mset> {
+    fn from(set: Mset) -> Self {
+        set.0
+    }
+}
 
 impl FromIterator<Mset> for Mset {
     fn from_iter<T: IntoIterator<Item = Mset>>(iter: T) -> Self {
@@ -13,6 +31,7 @@ impl FromIterator<Mset> for Mset {
     }
 }
 
+/// Succintly writes a multiset as stored in memory.
 impl Debug for Mset {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         f.write_char('(')?;
@@ -23,48 +42,52 @@ impl Debug for Mset {
     }
 }
 
+/// Displays a multiset in canonical roster notation.
 impl Display for Mset {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         write!(f, "{}", self.ahu())
     }
 }
 
-/// Error in parsing a multiset. This can only happen due to mismatched brackets.
-#[derive(Clone, Copy, Debug)]
-pub struct Error;
+// -------------------- String parsing -------------------- //
 
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+/// Error in parsing a set. This can only happen due to mismatched brackets.
+#[derive(Clone, Copy, Debug)]
+pub struct SetError;
+
+impl Display for SetError {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         f.write_str("mismatched brackets")
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for SetError {}
 
-/// Sets are parsed from their set-builder notation. Any symbol other than `{` and `}` is ignored.
+/// Multisets are parsed from their roster notation. Any symbol other than `{` and `}` is ignored,
+/// including commas.
 impl FromStr for Mset {
-    type Err = Error;
+    type Err = SetError;
 
-    fn from_str(s: &str) -> Result<Self, Error> {
+    fn from_str(s: &str) -> Result<Self, SetError> {
         let mut stack = Vec::new();
         let mut iter = s.chars();
 
         loop {
-            let c = iter.next().ok_or(Error)?;
+            let c = iter.next().ok_or(SetError)?;
             match c {
-                // New set.
+                // New multiset.
                 '{' => stack.push(Self::empty()),
 
-                // Close last set.
+                // Close last multiset.
                 '}' => {
-                    let last = stack.pop().ok_or(Error)?;
+                    let last = stack.pop().ok_or(SetError)?;
                     if let Some(prev) = stack.last_mut() {
                         prev.insert_mut(last);
                     } else {
-                        // Set has been built.
+                        // Multiset has been built.
                         for c in iter {
                             if ['{', '}'].contains(&c) {
-                                return Err(Error);
+                                return Err(SetError);
                             }
                         }
 
@@ -77,196 +100,36 @@ impl FromStr for Mset {
     }
 }
 
-/// Two multisets are equal if they contain the same elements the same number of times.
-impl PartialEq for Mset {
-    fn eq(&self, other: &Self) -> bool {
-        if let Some((fst, snd)) =
-            Levels::init(self).both(Levels::init(other), |fst, snd| fst.len() == snd.len())
-        {
-            // Since both sets have the same number of hereditary subsets, checking the subset
-            // relation suffices.
-            fst.subset(&snd)
-        } else {
-            false
-        }
-    }
-}
+// -------------------- SetTrait -------------------- //
 
-/// A multiset is smaller or equal than another when it contains the same elements at most as many
-/// times as the other.
-impl PartialOrd for Mset {
-    fn le(&self, other: &Self) -> bool {
-        let levels =
-            Levels::init(self).both(Levels::init(other), |fst, snd| fst.len() <= snd.len());
+impl crate::Seal for Mset {}
 
-        if let Some((fst, snd)) = levels {
-            fst.subset(&snd)
-        } else {
-            false
-        }
+impl SetTrait for Mset {
+    // -------------------- Basic methods -------------------- //
+
+    fn as_slice(&self) -> &[Self] {
+        &self.0
     }
 
-    fn ge(&self, other: &Self) -> bool {
-        other.le(self)
-    }
-
-    fn lt(&self, other: &Self) -> bool {
-        let levels =
-            Levels::init(self).both(Levels::init(other), |fst, snd| fst.len() <= snd.len());
-
-        if let Some((fst, snd)) = levels {
-            fst.len() < snd.len() && fst.subset(&snd)
-        } else {
-            false
-        }
-    }
-
-    fn gt(&self, other: &Self) -> bool {
-        other.lt(self)
-    }
-
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let mut candidate = Ordering::Equal;
-        let levels = Levels::init(self).both(Levels::init(other), |fst, snd| {
-            let cmp = fst.len().cmp(&snd.len());
-            if cmp.is_ne() {
-                if candidate.is_eq() {
-                    candidate = cmp;
-                } else if candidate != cmp {
-                    return false;
-                }
-            }
-
-            true
-        });
-
-        if let Some((fst, snd)) = levels {
-            // If the code reaches this point, the candidate ordering is the only possible ordering.
-            let test = match candidate {
-                Ordering::Less | Ordering::Equal => fst.subset(&snd),
-                Ordering::Greater => snd.subset(&fst),
-            };
-
-            if test {
-                return Some(candidate);
-            }
-        }
-
-        None
-    }
-}
-
-impl Mset {
-    /// The empty set Ø.
-    #[must_use]
-    pub const fn empty() -> Self {
-        Self(Vec::new())
-    }
-
-    /// Returns whether the multiset is empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Clears the multiset.
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.0.clear();
     }
 
-    /// Set cardinality.
-    #[must_use]
-    pub fn card(&self) -> usize {
-        self.0.len()
+    // -------------------- Constructions -------------------- //
+
+    fn empty() -> Self {
+        Self(Vec::new())
     }
 
-    /// An iterator over the elements of the [`Mset`].
-    pub fn iter(&self) -> std::slice::Iter<Mset> {
-        self.into_iter()
-    }
-
-    /// A mutable iterator over the elements of the [`Mset`].
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<Mset> {
-        self.into_iter()
-    }
-
-    /// Finds the [`Ahu`] encoding for a multiset.
-    #[must_use]
-    pub fn ahu(&self) -> Ahu {
-        Ahu::new(self)
-    }
-
-    /// Set membership ∈.
-    #[must_use]
-    pub fn mem(&self, other: &Self) -> bool {
-        let mut fst = unsafe { Levels::empty() };
-        let snd = Levels::init(other).new();
-        let mut buf = Vec::new();
-
-        self.iter().any(move |set| {
-            fst.init_mut(set);
-            let mut r = 1;
-            while fst.step(&mut buf) {
-                if let Some(level) = snd.get(r) {
-                    if fst.last().len() != level.len() {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-
-                r += 1;
-            }
-
-            fst.subset(&snd)
-        })
-    }
-
-    /// Subset ⊆.
-    #[must_use]
-    pub fn subset(&self, other: &Self) -> bool {
-        self.le(other)
-    }
-
-    /// Mutable set insertion.
-    pub fn insert_mut(&mut self, other: Self) {
-        self.0.push(other);
-    }
-
-    /// Set insertion x ∪ {y}.
-    #[must_use]
-    pub fn insert(mut self, other: Self) -> Self {
-        self.insert_mut(other);
-        self
-    }
-
-    /// Set singleton {x}.
-    #[must_use]
-    pub fn singleton(self) -> Self {
+    fn singleton(self) -> Self {
         Self(vec![self])
     }
 
-    /// Set pair {x, y}.
-    #[must_use]
-    pub fn pair(self, other: Self) -> Self {
-        Self(vec![self, other])
+    fn insert_mut(&mut self, other: Self) {
+        self.0.push(other);
     }
 
-    /// Set union x ∪ y.
-    #[must_use]
-    pub fn union(mut self, other: Self) -> Self {
-        self.0.extend(other);
-        self
-    }
-
-    /// Set union ∪x.
-    #[must_use]
-    pub fn big_union(self) -> Self {
-        self.into_iter().flatten().collect()
-    }
-
-    /// Mutable set specification.
-    pub fn select_mut<P: FnMut(&Mset) -> bool>(&mut self, mut pred: P) {
+    fn select_mut<P: FnMut(&Mset) -> bool>(&mut self, mut pred: P) {
         let mut i = 0;
         while i < self.card() {
             if pred(&self.0[i]) {
@@ -277,27 +140,144 @@ impl Mset {
         }
     }
 
-    /// Set specification.
+    fn powerset(self) -> Self {
+        let n = self.card();
+        let mut powerset = Self::empty().singleton();
+        if n == 0 {
+            return powerset;
+        }
+
+        for mut i in 1..((1 << n) - 1) {
+            let mut subset = Self::empty();
+            for j in 0..n {
+                if i % 2 == 1 {
+                    subset.insert_mut(self.0[j].clone());
+                }
+                i /= 2;
+            }
+
+            powerset.insert_mut(subset);
+        }
+
+        powerset.insert(self)
+    }
+
+    fn nat(n: usize) -> Self {
+        let mut res = Mset::empty();
+        for _ in 0..n {
+            res.insert_mut(res.clone());
+        }
+        res
+    }
+
+    fn zermelo(n: usize) -> Self {
+        let mut res = Mset::empty();
+        for _ in 0..n {
+            res = res.singleton();
+        }
+        res
+    }
+
+    fn neumann(n: usize) -> Self {
+        debug_assert!(
+            n <= 5,
+            "the sixth set in the von Neumann hierarchy has 2^65536 elements"
+        );
+
+        let mut set = Self::empty();
+        for _ in 0..n {
+            set = set.powerset();
+        }
+        set
+    }
+
+    // -------------------- Relations -------------------- //
+
+    unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool {
+        fst.subset_gen(
+            snd,
+            // Decrement set count. Return if this reaches a negative.
+            |sets, children| match sets.entry(children) {
+                Entry::Vacant(_) => None,
+                Entry::Occupied(mut entry) => {
+                    let (idx, num) = entry.get_mut();
+                    let idx = *idx;
+                    if *num == 0 {
+                        entry.remove_entry();
+                    } else {
+                        *num -= 1;
+                    }
+                    Some(idx)
+                }
+            },
+            // Increment set count.
+            |sets, children| {
+                let len = sets.len();
+                match sets.entry(children) {
+                    Entry::Vacant(entry) => {
+                        entry.insert((len, 0));
+                        len
+                    }
+                    Entry::Occupied(mut entry) => {
+                        let (idx, num) = entry.get_mut();
+                        *num += 1;
+                        *idx
+                    }
+                }
+            },
+        )
+    }
+}
+
+// -------------------- Constructions -------------------- //
+
+impl Mset {
+    /// The set as a mutable slice.
+    pub fn as_slice_mut(&mut self) -> &mut [Self] {
+        &mut self.0
+    }
+
+    /// A reference to the inner vector.
+    pub fn as_vec(&self) -> &Vec<Self> {
+        &self.0
+    }
+
+    /// A mutable reference to the inner vector.
+    pub fn as_vec_mut(&mut self) -> &mut Vec<Self> {
+        &mut self.0
+    }
+
+    /// Mutably iterate over the elements of the set.
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<Self> {
+        self.0.iter_mut()
+    }
+
+    /// Union x ∪ y.
     #[must_use]
-    pub fn select<P: FnMut(&Mset) -> bool>(mut self, pred: P) -> Self {
-        self.select_mut(pred);
+    pub fn union(mut self, other: Self) -> Self {
+        self.0.extend(other);
         self
     }
 
-    /// Set intersection x ∩ y.
+    /// Union ∪x.
     #[must_use]
-    pub fn inter(self, other: Self) -> Self {
-        let idx = self.card();
-        let mut pair = self.pair(other);
-        let levels = Levels::init(&pair).new();
+    pub fn big_union(self) -> Self {
+        self.into_iter().flatten().collect()
+    }
 
-        // The intersection of two empty sets is empty.
-        let elements;
-        if let Some(els) = levels.get(2) {
-            elements = els;
-        } else {
-            return Self::empty();
+    /*
+    /// Intersection x ∩ y.
+    #[must_use]
+    pub fn disjoint(&self, other: &Self) -> bool {
+        // Check for empty multiset.
+        let idx = self.card();
+        if idx == 0 || other.is_empty() {
+            return true;
         }
+
+        let mut pair = self.pair(other);
+        let levels = Levels::init(&pair).fill();
+        let elements = unsafe { levels.get(2).unwrap_unchecked() };
 
         // We store the indices of the sets in the intersection.
         let (mut next, mut indices) = levels.mod_ahu(3);
@@ -310,7 +290,7 @@ impl Mset {
                 slice as &[_]
             };
 
-            // Each entry stores the indices where it's found within the first set.
+            // Each entry stores the indices where it's found within the first multiset.
             let children: SmallVec<_> = slice.iter().copied().collect();
             match sets.entry(children) {
                 Entry::Vacant(entry) => {
@@ -338,112 +318,208 @@ impl Mset {
         }
 
         snd
-    }
+    } */
 
-    /// Powerset 2^x.
+    /// Intersection x ∩ y.
     #[must_use]
-    pub fn powerset(self) -> Self {
-        let n = self.card();
-        let mut powerset = Self::empty().singleton();
-        if n == 0 {
-            return powerset;
+    pub fn inter(mut self, mut other: Self) -> Self {
+        // Check for empty multisets.
+        let idx = self.card();
+        if idx == 0 || other.is_empty() {
+            return Self::empty();
         }
 
-        for mut i in 1..((1 << n) - 1) {
-            let mut subset = Self::empty();
-            for j in 0..n {
-                if i % 2 == 1 {
-                    subset.insert_mut(self.0[j].clone());
+        let levels = Levels::init_iter([&self, &other]).fill();
+        let elements = unsafe { levels.get(1).unwrap_unchecked() };
+
+        // We store the indices of the sets in the intersection.
+        let (mut next, mut indices) = levels.mod_ahu(2);
+
+        let mut sets: BTreeMap<_, SmallVec<_>> = BTreeMap::new();
+        for (i, range) in Levels::child_iter(elements).enumerate() {
+            let slice = unsafe {
+                let slice = next.get_unchecked_mut(range);
+                slice.sort_unstable();
+                slice as &[_]
+            };
+
+            // Each entry stores the indices where it's found within the first multiset.
+            let children: SmallVec<_> = slice.iter().copied().collect();
+            match sets.entry(children) {
+                Entry::Vacant(entry) => {
+                    if i < idx {
+                        entry.insert(smallvec![i]);
+                    }
                 }
-                i /= 2;
+                Entry::Occupied(mut entry) => {
+                    if i < idx {
+                        entry.get_mut().push(i);
+                    } else if let Some(j) = entry.get_mut().pop() {
+                        indices.push(j);
+                    }
+                }
             }
-
-            powerset.insert_mut(subset);
         }
 
-        powerset.insert(self)
-    }
-
-    /// The von Neumann rank of the set.
-    #[must_use]
-    pub fn rank(&self) -> usize {
-        Levels::init(self).new().rank()
-    }
-
-    /// The von Neumann set encoding for n.
-    #[must_use]
-    pub fn nat(n: usize) -> Self {
-        let mut res = Mset::empty();
-        for _ in 0..n {
-            res.insert_mut(res.clone());
+        other.clear();
+        for i in indices {
+            let set = std::mem::take(unsafe { self.0.get_unchecked_mut(i) });
+            other.insert_mut(set);
         }
-        res
-    }
 
-    /// The Zermelo set encoding for n.
-    #[must_use]
-    pub fn zermelo(n: usize) -> Self {
-        let mut res = Mset::empty();
-        for _ in 0..n {
-            res = res.singleton();
-        }
-        res
-    }
-
-    /// The von Neumann hierarchy.
-    #[must_use]
-    pub fn neumann(n: usize) -> Self {
-        debug_assert!(
-            n <= 5,
-            "the sixth set in the von Neumann hierarchy has 2^65536 elements"
-        );
-
-        let mut set = Self::empty();
-        for _ in 0..n {
-            set = set.powerset();
-        }
-        set
+        other
     }
 }
 
+/// Tests for [`Mset`].
 #[cfg(test)]
-mod tests {
+mod mset {
     use super::*;
 
-    const NATS: [&str; 4] = ["{}", "{{}}", "{{}, {{}}}", "{{}, {{}}, {{}, {{}}}}"];
+    /// A multitude of general multisets for general-purpose testing.
+    ///
+    /// Both the list and each constituent set should be normalized, i.e. in decreasing
+    /// lexicographic order.
+    const SUITE: &[&str] = &[
+        "{}",
+        "{{}}",
+        "{{}, {}}",
+        "{{}, {{}}, {{}, {{}}}}",
+        "{{{}, {}}, {{}, {}}}",
+        "{{{{{}}}}}",
+    ];
 
-    /// Verify round-trip between set and string.
-    fn roundtrip(set: Mset, str: &str) {
-        assert_eq!(set.to_string(), str);
-        assert_eq!(set, str.parse().unwrap());
+    /// Our [`SUITE`] as `(&str, Mset)` pairs.
+    fn suite() -> impl Iterator<Item = (&'static str, Mset)> {
+        SUITE.iter().map(|&str| (str, str.parse().unwrap()))
     }
 
+    /// Normalize string for a set.
+    fn normalize(str: &str) -> String {
+        let set: Mset = str.parse().unwrap();
+        set.to_string()
+    }
+
+    fn inner(str: &str) -> &str {
+        &str[1..(str.len() - 1)]
+    }
+
+    /// Verify round-trip conversion between set and string.
+    fn roundtrip(set: &Mset, str: &str) {
+        assert_eq!(set, &str.parse().unwrap());
+        assert_eq!(set.to_string(), str);
+    }
+
+    /// Normalize string, then call [`roundtrip`].
+    fn roundtrip_norm(set: &Mset, str: &str) {
+        roundtrip(set, &normalize(str))
+    }
+
+    /// Test that our [`SUITE`] is well-formatted.
+    #[test]
+    fn test_suite() {
+        for i in 1..SUITE.len() {
+            assert!(
+                SUITE[i - 1] > SUITE[i],
+                "test suite must be inversely lexicographically ordered"
+            )
+        }
+
+        let _ = suite();
+    }
+
+    /// Test [`Mset::empty`].
     #[test]
     fn empty() {
-        roundtrip(Mset::empty(), "{}");
+        roundtrip(&Mset::empty(), "{}");
     }
 
+    /// Test [`Mset::singleton`].
     #[test]
     fn singleton() {
-        roundtrip(Mset::empty().singleton(), "{{}}");
-    }
-
-    #[test]
-    fn pair() {
-        let set = Mset::empty();
-        roundtrip(set.clone().pair(set), "{{}, {}}");
-    }
-
-    #[test]
-    fn nat() {
-        for n in 0..4 {
-            roundtrip(Mset::nat(n), NATS[n]);
+        for (str, set) in suite() {
+            roundtrip(&set.singleton(), &format!("{{{str}}}"));
         }
     }
 
+    /// Test [`Mset::pair`].
+    #[test]
+    fn pair() {
+        for (i, (str_1, set_1)) in suite().enumerate() {
+            for (str_2, set_2) in suite().skip(i) {
+                roundtrip(
+                    &set_1.clone().pair(set_2.clone()),
+                    &format!("{{{str_1}, {str_2}}}"),
+                );
+            }
+        }
+    }
+
+    /// Test [`Mset::mem`].
+    #[test]
+    fn mem() {
+        const MEM: &[(usize, usize)] = &[(0, 1), (0, 2), (0, 3), (1, 3), (2, 4)];
+
+        for (i, (_, set_1)) in suite().enumerate() {
+            for (j, (_, set_2)) in suite().enumerate() {
+                assert_eq!(
+                    MEM.contains(&(i, j)),
+                    set_2.contains(&set_1),
+                    "set membership fail {i}, {j}: {set_1} | {set_2}"
+                )
+            }
+        }
+    }
+
+    /// Test [`Mset::nat`].
+    #[test]
+    fn nat() {
+        let mut outputs = Vec::<String>::new();
+        for n in 0..5 {
+            // Build naturals manually.
+            let mut str = String::from('{');
+            let mut iter = outputs.iter();
+            if let Some(fst) = iter.next() {
+                str.push_str(&fst);
+            }
+            for set in iter {
+                str.push_str(", ");
+                str.push_str(set);
+            }
+            str.push('}');
+
+            roundtrip(&Mset::nat(n), &str);
+            outputs.push(str);
+        }
+    }
+
+    /// Test [`Mset::union`].
     #[test]
     fn union() {
-        let set = Mset::nat(2).union(Mset::nat(3));
-        roundtrip(set, "{{}, {}, {{}}, {{}}, {{}, {{}}}}");
+        // Remove initial parentheses.
+        let suite = || suite().map(|(str, set)| (inner(str), set));
+
+        for (str_1, set_1) in suite() {
+            for (str_2, set_2) in suite() {
+                roundtrip_norm(
+                    &set_1.clone().union(set_2.clone()),
+                    &format!("{{{str_1}, {str_2}}}"),
+                );
+            }
+        }
+    }
+
+    /// Test [`Mset::inter`].
+    #[test]
+    fn inter() {
+        for (_, set_1) in suite() {
+            for (_, set_2) in suite() {
+                let inter = set_1.clone().inter(set_2.clone());
+                for set in inter {
+                    assert!(set.contains(&set_1));
+                    assert!(set.contains(&set_2))
+                }
+            }
+        }
     }
 }

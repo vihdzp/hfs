@@ -1,4 +1,7 @@
 //! Utility types and algorithms for working with sets.
+//!
+//! Taking most of the space within the file is [`Levels`], a bespoke data structure responsible for
+//! most of the clever algorithms for basic set manipulation.
 
 use crate::prelude::*;
 use std::ops::Range;
@@ -15,7 +18,8 @@ pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usiz
     }
 }
 
-/// Represents the multisets at each rank within an [`Mset`], and assigns some data to each.
+/// Represents the multisets at each rank within one or more [`Mset`], and assigns some data to
+/// each.
 ///
 /// To save on allocations, we use a single vector and an "indexing" vector to get subslices of it,
 /// but morally, this is a `Vec<Vec<T>>`. As a further optimization, many functions take in an
@@ -24,7 +28,10 @@ pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usiz
 ///
 /// ## Invariants
 ///
-/// - Every [`Levels`] must have a root level with a single node, and no level can be empty.
+/// These invariants should hold for any [`Levels`]. **Unsafe code performs optimizations contingent
+/// on these.**
+///
+/// - Every [`Levels`] must have a root level, and no level can be empty.
 /// - The elements of `indices` are a strictly increasing sequence, and they are all smaller than
 ///   the length of `data`.
 #[derive(Clone, Debug)]
@@ -32,7 +39,6 @@ pub struct Levels<T> {
     /// The i-th element of the array represents the start point for the i-th level in the data
     /// array.
     indices: SmallVec<usize>,
-
     /// Stores all the data for all levels.
     data: Vec<T>,
 }
@@ -44,6 +50,7 @@ impl<T> Levels<T> {
     ///
     /// The only valid use for this is as a placeholder or as an initial buffer to be immediately
     /// filled.
+    #[must_use]
     pub unsafe fn empty() -> Self {
         Self {
             indices: SmallVec::new(),
@@ -80,7 +87,7 @@ impl<T> Levels<T> {
         self.indices.len()
     }
 
-    /// The rank of the set.
+    /// The rank of the set, one less than the number of levels.
     #[must_use]
     pub fn rank(&self) -> usize {
         unsafe { self.level_len().unchecked_sub(1) }
@@ -137,7 +144,7 @@ impl<T> Levels<T> {
     ///
     /// - `T`: pointer type to a set-like object
     /// - `extend`: a function extending an array with the children of a set `T`
-    /// - `buf`: a buffer for calculations.
+    /// - `buf`: a buffer for calculations
     pub fn step_gen<F: FnMut(&mut Vec<T>, T)>(&mut self, mut extend: F, buf: &mut Vec<T>) -> bool
     where
         T: Copy,
@@ -147,6 +154,9 @@ impl<T> Levels<T> {
         let end = self.data.len();
 
         // Adds elements of each set in the last level.
+        //
+        // We write them into an auxiliary buffer first, as the reference to `set` might otherwise
+        // be invalidated by an array resize.
         for i in start..end {
             let set = unsafe { *self.data.get_unchecked(i) };
             extend(buf, set);
@@ -162,14 +172,14 @@ impl<T> Levels<T> {
         cont
     }
 
-    /// A generic procedure to build [`Levels`].
+    /// Fills all the [`Levels`] until there are no more children.
     ///
-    /// See [`Self::new`] and [`Self::new_mut`] for specific instantiations.
+    /// See [`Self::fill`] and [`Self::fill_mut`] for specific instantiations.
     ///
     /// - `T`: pointer type to a set-like object
     /// - `extend`: a function extending an array with the children of a set `T`
     #[must_use]
-    pub fn new_gen<F: FnMut(&mut Vec<T>, T)>(mut self, mut extend: F) -> Self
+    pub fn fill_gen<F: FnMut(&mut Vec<T>, T)>(mut self, mut extend: F) -> Self
     where
         T: Copy,
     {
@@ -283,7 +293,16 @@ impl<T: Display> Display for Levels<T> {
     }
 }
 
+/// We don't implement Levels<&Set> to avoid code duplication.
 impl<'a> Levels<&'a Mset> {
+    /// Initializes the first level from a list of sets.
+    pub fn init_iter<I: IntoIterator<Item = &'a Mset>>(iter: I) -> Self {
+        Self {
+            indices: smallvec![0],
+            data: iter.into_iter().collect(),
+        }
+    }
+
     /// Builds the next level from the last. Returns whether this level was nonempty.
     ///
     /// See [`Self::step_gen`].
@@ -291,10 +310,10 @@ impl<'a> Levels<&'a Mset> {
         self.step_gen(Vec::extend, buf)
     }
 
-    /// Initializes levels for a [`Mset`].
+    /// Fills levels for a [`Mset`].
     #[must_use]
-    pub fn new(self) -> Self {
-        self.new_gen(Vec::extend)
+    pub fn fill(self) -> Self {
+        self.fill_gen(Vec::extend)
     }
 
     /// Initializes two [`Levels`] simultaneously. Calls a function on every pair of levels built,
@@ -309,6 +328,16 @@ impl<'a> Levels<&'a Mset> {
         self.both_gen(other, Vec::extend, cb)
     }
 
+    /// Initializes two [`Levels`] in the procedure to check set equality.
+    pub(crate) fn eq_levels(fst: &'a Mset, snd: &'a Mset) -> Option<(Self, Self)> {
+        Self::init(fst).both(Self::init(snd), |fst, snd| fst.len() == snd.len())
+    }
+
+    /// Initializes two [`Levels`] in the procedure to check subsets.
+    pub(crate) fn le_levels(fst: &'a Mset, snd: &'a Mset) -> Option<(Self, Self)> {
+        Self::init(fst).both(Self::init(snd), |fst, snd| fst.len() <= snd.len())
+    }
+
     /// For each set in a level within [`Levels`], finds the range for its children in the next
     /// level.
     #[must_use]
@@ -316,8 +345,8 @@ impl<'a> Levels<&'a Mset> {
         Self::child_iter_gen(level, |s| s.card())
     }
 
-    /// Computes a list of integers representing the distinct elements of the elements in the set at
-    /// a certain level.
+    /// Modified [`Ahu`] algorithm. Computes a list of integers representing the distinct elements
+    /// of the elements in the set at a certain level.
     ///
     /// As a small optimization, the second vector in the return value is an empty buffer that can
     /// be reused.
@@ -357,23 +386,42 @@ impl<'a> Levels<&'a Mset> {
     /// Returns whether `self` is a subset of `other`, meaning it contains each set at least as many
     /// times.
     ///
+    /// The functions `fst_fun` and `snd_fun` update our data structure for every element found in
+    /// the first and second sets respectively, and return an assigned index uniquely representing
+    /// the element. Note that the second set is searched before the first. If `fst_fun` returns
+    /// `None`, it means we've shown we don't have a subset.
+    ///
+    /// ## Precalculations
+    ///
     /// It can save a lot of time to first perform basic checks as the levels are built. For
     /// instance, if some level of `self` has more elements than the corresponding level of `other`,
     /// it can't be a subset. Likewise, if all elements have the same number of elements, the subset
     /// relation actually implies equality.
+    ///
+    /// Calling this function implies these basic tests have already been performed. In particular,
+    /// the function does not consider the case where `self` has a larger rank than `other`.
     #[must_use]
-    pub fn subset(&'a self, other: &'a Self) -> bool {
+    pub(crate) fn subset_gen<
+        T,
+        F: FnMut(&mut BTreeMap<SmallVec<usize>, T>, SmallVec<usize>) -> Option<usize>,
+        G: FnMut(&mut BTreeMap<SmallVec<usize>, T>, SmallVec<usize>) -> usize,
+    >(
+        &'a self,
+        other: &'a Self,
+        mut fst_fun: F,
+        mut snd_fun: G,
+    ) -> bool {
+        debug_assert!(
+            self.level_len() <= other.level_len(),
+            "this check should have been performed beforehand"
+        );
+
         let mut fst_cur = Vec::new();
         let mut fst_next = Vec::new();
         let mut snd_cur = Vec::new();
         let mut snd_next = Vec::new();
 
-        // Each set gets assigned a unique integer, and a "weighted count" of times found in `other`
-        // minus times found in `self`.
-        //
-        // If this weighted count goes into the negatives, return false.
         let mut sets = BTreeMap::new();
-
         for r in (1..other.level_len()).rev() {
             sets.clear();
             fst_cur.clear();
@@ -382,43 +430,25 @@ impl<'a> Levels<&'a Mset> {
             let fst_level = self.get(r).unwrap_or_default();
             let snd_level = unsafe { other.get(r).unwrap_unchecked() };
 
+            // Processs second set.
             for snd_range in Self::child_iter(snd_level) {
                 let mut children: SmallVec<_> =
                     unsafe { snd_next.get_unchecked(snd_range).iter().copied() }.collect();
                 children.sort_unstable();
 
-                // Number of times found, minus one.
-                let len = sets.len();
-                match sets.entry(children) {
-                    Entry::Vacant(entry) => {
-                        entry.insert((len, 0));
-                        snd_cur.push(len);
-                    }
-                    Entry::Occupied(mut entry) => {
-                        let (idx, num) = entry.get_mut();
-                        snd_cur.push(*idx);
-                        *num += 1;
-                    }
-                }
+                snd_cur.push(snd_fun(&mut sets, children));
             }
 
+            // Process first set.
             for fst_range in Self::child_iter(fst_level) {
                 let mut children: SmallVec<_> =
                     unsafe { fst_next.get_unchecked(fst_range).iter().copied() }.collect();
                 children.sort_unstable();
 
-                // Remove one to the times found.
-                match sets.entry(children) {
-                    Entry::Vacant(_) => return false,
-                    Entry::Occupied(mut entry) => {
-                        let (idx, num) = entry.get_mut();
-                        fst_cur.push(*idx);
-                        if *num == 0 {
-                            entry.remove_entry();
-                        } else {
-                            *num -= 1;
-                        }
-                    }
+                if let Some(idx) = fst_fun(&mut sets, children) {
+                    fst_cur.push(idx);
+                } else {
+                    return false;
                 }
             }
 
@@ -431,17 +461,17 @@ impl<'a> Levels<&'a Mset> {
 }
 
 impl Levels<*mut Mset> {
-    /// Initializes mutable levels for a [`Mset`]. Pointers are reqiured as each level mutably
-    /// aliases the next.
+    /// Fills mutable levels for a [`Mset`]. Pointers are reqiured as each level mutably aliases the
+    /// next.
     ///
     /// ## Safety
     ///
     /// This method is completely safe, but you must be careful dereferencing pointers. Modifying a
     /// set and trying to access its children will often result in an invalid dereference.
     #[must_use]
-    pub fn new_mut(self) -> Self {
+    pub fn fill_mut(self) -> Self {
         // The set is not mutated, so the pointers remain valid to dereference.
-        self.new_gen(|buf, set| {
+        self.fill_gen(|buf, set| {
             buf.extend(unsafe { &mut *set }.iter_mut().map(std::ptr::from_mut));
         })
     }
@@ -450,8 +480,8 @@ impl Levels<*mut Mset> {
 /// The [Aho–Hopcroft–Ullman](https://www.baeldung.com/cs/isomorphic-trees) (AHU) encoding for an
 /// [`Mset`]. It is unique up to multiset equality.
 ///
-/// Conceptually, this amounts to hereditarily lexicographically ordered set-builder notation. In
-/// fact, the [`Display`] implementation for [`Mset`] constructs an [`Ahu`] first.
+/// Conceptually, this amounts to hereditarily lexicographically ordered roster notation. In fact,
+/// the [`Display`] implementation for [`Mset`] constructs an [`Ahu`] first.
 ///
 /// ## Modified AHU algorithm
 ///
@@ -475,7 +505,7 @@ impl Ahu {
     /// Finds the [`Ahu`] encoding for a multiset.
     #[must_use]
     pub fn new(set: &Mset) -> Self {
-        let levels = Levels::init(set).new();
+        let levels = Levels::init(set).fill();
         let mut cur = Vec::new();
         let mut next = Vec::new();
 
@@ -512,7 +542,7 @@ impl Ahu {
             std::mem::swap(&mut cur, &mut next);
         }
 
-        // Safety: the root note in `Levels` always exists.
+        // Safety: the top level of our Levels has a root node.
         Self(unsafe { next.pop().unwrap_unchecked() })
     }
 }

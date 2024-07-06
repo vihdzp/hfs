@@ -1,7 +1,14 @@
 [package]
 name = "hfs"
-version = "0.1.0"
+authors = ["Violeta Hernández Palacios <vi.hdz.p@gmail.com>"]
+categories = ["mathematics", "math"]
+description = "Hereditarily finite sets."
 edition = "2021"
+keywords = ["math", "set", "theory", "zfc"]
+license = "MIT OR Apache-2.0"
+readme = "../README.md"
+repository = "https://github.com/vihdzp/hfs"
+version = "0.0.1"
 
 [dependencies]
 bitvec = "1.0"

@@ -1,18 +1,22 @@
 //! Hereditarily finite sets [`Set`].
 
-use std::mem::ManuallyDrop;
-
 use crate::prelude::*;
 
-/// A set is a multiset that hereditarily has no duplicate elements.
+/// A [hereditarily finite set](https://en.wikipedia.org/wiki/Hereditarily_finite_set), implemented
+/// as a [`Mset`] where each multiset has no duplicate elements.
 ///
 /// ## Invariants
 ///
-/// Every two elements in a [`Set`] must be distinct. Moreover, every element must satisfy this same
-/// guarantee.
-#[derive(Clone, PartialEq, Eq, PartialOrd)]
+/// These invariants should hold for any [`Set`]. **Unsafe code performs optimizations contingent on
+/// these.**
+///
+/// - Every two elements in a [`Set`] must be distinct.
+/// - Any element in a [`Set`] must be a valid [`Set`] also.
+#[derive(Clone, Default, Eq)]
 #[repr(transparent)]
 pub struct Set(Mset);
+
+// -------------------- Basic traits -------------------- //
 
 impl AsRef<Mset> for Set {
     fn as_ref(&self) -> &Mset {
@@ -21,29 +25,40 @@ impl AsRef<Mset> for Set {
 }
 
 impl From<Set> for Mset {
-    fn from(value: Set) -> Self {
-        value.0
+    fn from(set: Set) -> Self {
+        set.0
     }
 }
 
+impl From<Set> for Vec<Set> {
+    fn from(set: Set) -> Self {
+        unsafe { crate::transmute_vec(set.0 .0) }
+    }
+}
+
+/// Succintly writes a multiset as stored in memory.
 impl Debug for Set {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", self.mset())
     }
 }
 
+/// Displays a multiset in canonical roster notation.
 impl Display for Set {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{}", self.mset())
     }
 }
 
-/// Transmute [`Vec<Set>`] into [`Vec<Mset>`].
-#[allow(dead_code)]
-fn cast_vec(vec: Vec<Set>) -> Vec<Mset> {
-    let mut vec = ManuallyDrop::new(vec);
-    unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
+impl FromStr for Set {
+    type Err = SetError;
+
+    fn from_str(s: &str) -> Result<Self, SetError> {
+        s.parse().map(Mset::into_set)
+    }
 }
+
+// -------------------- Casting -------------------- //
 
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
@@ -74,11 +89,11 @@ unsafe fn dedup_by<T: Default>(
     set.append(buf2);
 }
 
-impl Set {
+impl Mset {
     /// Flattens a multiset into a set hereditarily.
     #[must_use]
-    pub fn from_mset(mut set: Mset) -> Self {
-        let levels = Levels::init(std::ptr::from_mut(&mut set)).new_mut();
+    pub fn into_set(mut self) -> Set {
+        let levels = Levels::init(std::ptr::from_mut(&mut self)).fill_mut();
         let mut cur = Vec::new();
         let mut next = vec![0; levels.last().len()];
 
@@ -108,28 +123,15 @@ impl Set {
             std::mem::swap(&mut cur, &mut next);
         }
 
-        Self(set)
+        Set(self)
     }
 
-    /// Transmutes an [`Mset`] into a [`Set`] without checking that there are no repeated elements.
-    ///
-    /// ## Safety
-    ///
-    /// You must guarantee that `set` is in fact a set. Doing otherwise breaks the type invariant
-    /// for [`Set`].
-    #[must_use]
-    pub unsafe fn from_mset_unchecked(set: Mset) -> Self {
-        Self(set)
-    }
-}
-
-impl Mset {
     /// Checks whether the multiset is in fact a set. This property is checked hereditarily.
     ///
     /// See also [`Self::into_set`].
     #[must_use]
     pub fn is_set(&self) -> bool {
-        let levels = Levels::init(self).new();
+        let levels = Levels::init(self).fill();
         let mut cur = Vec::new();
         let mut next = vec![0; levels.last().len()];
 
@@ -145,23 +147,17 @@ impl Mset {
                     slice as &[_]
                 };
 
+                // Find duplicate elements.
                 for i in 1..slice.len() {
                     if slice[i - 1] == slice[i] {
                         return false;
                     }
                 }
 
-                let children: SmallVec<usize> = slice.iter().copied().collect();
-                let len = sets.len();
-                match sets.entry(children) {
-                    Entry::Vacant(entry) => {
-                        entry.insert(len);
-                        cur.push(len);
-                    }
-                    Entry::Occupied(entry) => {
-                        cur.push(*entry.get());
-                    }
-                }
+                cur.push(btree_index(
+                    &mut sets,
+                    slice.iter().copied().collect::<SmallVec<_>>(),
+                ));
             }
 
             std::mem::swap(&mut cur, &mut next);
@@ -170,56 +166,71 @@ impl Mset {
         true
     }
 
-    /// Flattens a multiset into a set.
-    ///
-    /// See [`Set::from_mset`].
-    #[must_use]
-    pub fn into_set(self) -> Set {
-        Set::from_mset(self)
+    /// Transmutes an [`Mset`] into a [`Set`], first checking the type invariants.
+    pub fn into_set_checked(self) -> Option<Set> {
+        if self.is_set() {
+            Some(Set(self))
+        } else {
+            None
+        }
     }
 
-    /// Transmutes an [`Mset`] into a [`Set`] without checking the type invariants.
+    /// Transmutes an [`Mset`] into a [`Set`] **without** checking the type invariants.
     ///
     /// ## Safety
     ///
-    /// See [`Set::from_mset_unchecked`].
+    /// You must guarantee that the [`Mset`] satisfies the type invariants for [`Set`].
     #[must_use]
     pub unsafe fn into_set_unchecked(self) -> Set {
-        Set::from_mset_unchecked(self)
+        Set(self)
     }
 
-    /// Transmutes a [`Mset`] reference into a [`Set`] reference without checking the type
+    /// Transmutes a [`Mset`] reference into a [`Set`] reference, first checking the type
+    /// invariants.
+    #[must_use]
+    pub fn as_set_checked(&self) -> Option<&Set> {
+        if self.is_set() {
+            Some(unsafe { &*(std::ptr::from_ref(self).cast()) })
+        } else {
+            None
+        }
+    }
+
+    /// Transmutes a [`Mset`] reference into a [`Set`] reference **without** checking the type
     /// invariants.
     ///
     /// ## Safety
     ///
-    /// See [`Set::from_mset_unchecked`].
+    /// You must guarantee that the [`Mset`] satisfies the type invariants for [`Set`].
     #[must_use]
-    pub unsafe fn as_set(&self) -> &Set {
-        unsafe { &*(std::ptr::from_ref(self).cast()) }
+    pub unsafe fn as_set_unchecked(&self) -> &Set {
+        self.as_set_checked().unwrap_unchecked()
     }
 
-    /// Transmutes a [`Mset`] mutable reference into a [`Set`] mutable reference without checking
-    /// the type invariants.
+    /// Transmutes a mutable [`Mset`] reference into a [`Set`] reference, first checking the type
+    /// invariants.
+    #[must_use]
+    pub fn as_set_mut_checked(&mut self) -> Option<&mut Set> {
+        if self.is_set() {
+            Some(unsafe { &mut *(std::ptr::from_mut(self).cast()) })
+        } else {
+            None
+        }
+    }
+
+    /// Transmutes a mutable [`Mset`] reference into a [`Set`] reference **without** checking the
+    /// type invariants.
     ///
     /// ## Safety
     ///
-    /// See [`Set::from_mset_unchecked`].
-    pub unsafe fn as_set_mut(&mut self) -> &mut Set {
-        unsafe { &mut *(std::ptr::from_mut(self).cast()) }
+    /// You must guarantee that the [`Mset`] satisfies the type invariants for [`Set`].
+    #[must_use]
+    pub unsafe fn as_set_mut_unchecked(&mut self) -> &mut Set {
+        self.as_set_mut_checked().unwrap_unchecked()
     }
 }
 
-impl TryFrom<Mset> for Set {
-    type Error = ();
-    fn try_from(value: Mset) -> Result<Self, Self::Error> {
-        if value.is_set() {
-            Ok(Self(value))
-        } else {
-            Err(())
-        }
-    }
-}
+// -------------------- Iterators -------------------- //
 
 /// An auxiliary type to map [`Mset`] to [`Set`] within iterators.
 pub struct Cast<I>(I);
@@ -236,7 +247,7 @@ impl<'a> Iterator for Cast<std::slice::Iter<'a, Mset>> {
     type Item = &'a Set;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|s| unsafe { s.as_set() })
+        self.0.next().map(|s| unsafe { s.as_set_unchecked() })
     }
 }
 
@@ -244,7 +255,7 @@ impl<'a> Iterator for Cast<std::slice::IterMut<'a, Mset>> {
     type Item = &'a mut Set;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|s| unsafe { s.as_set_mut() })
+        self.0.next().map(|s| unsafe { s.as_set_mut_unchecked() })
     }
 }
 
@@ -275,113 +286,150 @@ impl<'a> IntoIterator for &'a mut Set {
     }
 }
 
+// -------------------- SetTrait -------------------- //
+
+impl crate::Seal for Set {}
+
+impl SetTrait for Set {
+    // -------------------- Basic methods -------------------- //
+
+    fn as_slice(&self) -> &[Self] {
+        let slice = self.0.as_slice();
+        unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    // -------------------- Constructions -------------------- //
+
+    fn empty() -> Self {
+        Self(Mset::empty())
+    }
+
+    fn singleton(self) -> Self {
+        Self(self.0.singleton())
+    }
+
+    fn insert_mut(&mut self, set: Self) {
+        if !self.contains(&set) {
+            self.0.insert_mut(set.0);
+        }
+    }
+
+    fn select_mut<P: FnMut(&Set) -> bool>(&mut self, mut pred: P) {
+        self.0
+            .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
+    }
+
+    fn powerset(self) -> Self {
+        Self(self.0.powerset())
+    }
+
+    fn nat(n: usize) -> Self {
+        Self(Mset::nat(n))
+    }
+
+    fn zermelo(n: usize) -> Self {
+        Self(Mset::zermelo(n))
+    }
+
+    fn neumann(n: usize) -> Self {
+        Self(Mset::neumann(n))
+    }
+
+    // -------------------- Relations -------------------- //
+
+    unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool {
+        fst.subset_gen(
+            snd,
+            // Remove found sets, return if one isn't found.
+            |sets, children| sets.remove(&children),
+            // Add found sets. No set can be duplicated.
+            |sets, children| {
+                let len = sets.len();
+                // Very cheeky and probably unhelpful use of unsafe code.
+                if sets.insert(children, len).is_some() {
+                    unsafe { std::hint::unreachable_unchecked() }
+                }
+                len
+            },
+        )
+    }
+}
+
 impl Set {
-    /// Returns a reference to the underlying multiset.
+    /// Returns a reference to the inner [`Mset`].
     #[must_use]
     pub const fn mset(&self) -> &Mset {
         &self.0
     }
 
-    /// The empty set Ø.
-    #[must_use]
-    pub const fn empty() -> Self {
-        Self(Mset::empty())
+    /// The set as a mutable slice.
+    ///
+    /// ## Safety
+    ///
+    /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
+    /// elements equal.
+    pub unsafe fn as_slice_mut(&mut self) -> &mut [Self] {
+        let slice = self.0.as_slice_mut();
+        unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
     }
 
-    /// Returns whether the set is empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    /// A reference to the inner vector.
+    pub fn as_vec(&self) -> &Vec<Mset> {
+        &self.0 .0
     }
 
-    /// Clears the set.
-    pub fn clear(&mut self) {
-        self.0.clear();
+    /// A mutable reference to the inner vector.
+    ///
+    /// ## Safety
+    ///
+    /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
+    /// elements equal.
+    pub unsafe fn as_vec_mut(&mut self) -> &mut Vec<Mset> {
+        &mut self.0 .0
     }
 
-    /// Set cardinality.
-    #[must_use]
-    pub fn card(&self) -> usize {
-        self.0.card()
+    /// Mutably iterate over the elements of the set.
+    ///
+    /// ## Safety
+    ///
+    /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
+    /// elements equal.
+    pub unsafe fn iter_mut(&mut self) -> std::slice::IterMut<Self> {
+        self.as_slice_mut().iter_mut()
     }
 
-    /// An iterator over the elements of the [`Set`].
-    #[must_use]
-    pub fn iter(&self) -> Cast<std::slice::Iter<Mset>> {
-        self.into_iter()
-    }
-
-    /// A mutable iterator over the elements of the [`Set`].
-    pub fn iter_mut(&mut self) -> Cast<std::slice::IterMut<Mset>> {
-        self.into_iter()
-    }
-
-    /// Finds the [`Ahu`] encoding for a set.
-    #[must_use]
-    pub fn ahu(&self) -> Ahu {
-        self.0.ahu()
-    }
-
-    /// Set membership ∈.
-    #[must_use]
-    pub fn mem(&self, other: &Self) -> bool {
-        self.0.mem(&other.0)
-    }
-
-    /// Subset ⊆.
-    #[must_use]
-    pub fn subset(&self, other: &Self) -> bool {
-        self.0.subset(&other.0)
-    }
-
-    /// Mutable set insertion.
-    pub fn insert_mut(&mut self, other: Self) {
-        if !other.mem(self) {
-            self.0.insert_mut(other.0);
-        }
-    }
-
-    /// Mutable set insertion. Does not check whether the set being inserted is already in the set.
+    /// In-place set insertion x ∪ {y}. Does not check whether the set being inserted is already in
+    /// the set.
     ///
     /// ## Safety
     ///
     /// You must guarantee that `other` does not belong to `self`. Doing otherwise breaks the type
-    /// invariant for [`Set`].
+    /// invariants for [`Set`].
     pub unsafe fn insert_mut_unchecked(&mut self, other: Self) {
         self.0.insert_mut(other.0);
     }
 
-    /// Set insertion x ∪ {y}.
-    #[must_use]
-    pub fn insert(mut self, other: Self) -> Self {
-        self.insert_mut(other);
-        self
-    }
-
-    /// Set insertion x ∪ {y}. Does not check whether the set being inserted is already in the set.
+    /// Set insertion x ∪ {y}. Does not check whether the set being inserted is already in
+    /// the set.
     ///
     /// ## Safety
     ///
     /// You must guarantee that `other` does not belong to `self`. Doing otherwise breaks the type
-    /// invariant for [`Set`].
+    /// invariants for [`Set`].
     #[must_use]
     pub unsafe fn insert_unchecked(mut self, other: Self) -> Self {
         self.insert_mut_unchecked(other);
         self
     }
+}
 
-    /// Set singleton {x}.
-    #[must_use]
-    pub fn singleton(self) -> Self {
-        Self(self.0.singleton())
-    }
+// -------------------- Constructions -------------------- //
 
-    /// Set pair {x, y}.
-    #[must_use]
-    pub fn pair(self, other: Self) -> Self {
-        self.singleton().insert(other)
-    }
-
+impl Set {
     /// Set union x ∪ y.
     #[must_use]
     pub fn union(self, other: Self) -> Self {
@@ -400,37 +448,21 @@ impl Set {
         Mset(union).into_set()
     }
 
-    /// Mutable set specification.
-    pub fn select_mut<P: FnMut(&Set) -> bool>(&mut self, mut pred: P) {
-        self.0.select_mut(|set| pred(unsafe { set.as_set() }));
-    }
-
-    /// Set specification.
-    #[must_use]
-    pub fn select<P: FnMut(&Set) -> bool>(mut self, pred: P) -> Self {
-        self.select_mut(pred);
-        self
-    }
-
     /// Set intersection x ∩ y.
     ///
     /// This is a modified version of [`Mset::inter`].
     #[must_use]
-    pub fn inter(self, other: Self) -> Self {
+    pub fn inter(mut self, mut other: Self) -> Self {
         let idx = self.card();
-        let mut pair = self.0.pair(other.0);
-        let levels = Levels::init(&pair).new();
-
-        // The intersection of two empty sets is empty.
-        let elements;
-        if let Some(els) = levels.get(2) {
-            elements = els;
-        } else {
+        if idx == 0 || other.is_empty() {
             return Self::empty();
         }
 
+        let levels = Levels::init_iter([self.mset(), other.mset()]).fill();
+        let elements = unsafe { levels.get(1).unwrap_unchecked() };
+
         // We store the indices of the sets in the intersection.
-        let (mut next, mut indices) = levels.mod_ahu(3);
+        let (mut next, mut indices) = levels.mod_ahu(2);
 
         let mut sets = BTreeMap::new();
         for (i, range) in Levels::child_iter(elements).enumerate() {
@@ -449,22 +481,22 @@ impl Set {
                     }
                 }
                 Entry::Occupied(entry) => {
-                    debug_assert!(i >= idx);
+                    debug_assert!(
+                        i >= idx,
+                        "there can't be repeated elements within a single set"
+                    );
                     indices.push(entry.remove());
                 }
             }
         }
 
-        let mut snd = unsafe { pair.0.pop().unwrap_unchecked() };
-        let mut fst = unsafe { pair.0.pop().unwrap_unchecked() };
-        snd.clear();
-
+        other.clear();
         for i in indices {
-            let set = std::mem::take(unsafe { fst.0.get_unchecked_mut(i) });
-            snd.insert_mut(set);
+            let set = std::mem::take(unsafe { self.as_slice_mut().get_unchecked_mut(i) });
+            other.0.insert_mut(set.0);
         }
 
-        Self(snd)
+        other
     }
 
     /*  /// Set intersection ∩x.
@@ -506,4 +538,118 @@ impl Set {
     pub fn neumann(n: usize) -> Self {
         Self(Mset::neumann(n))
     }
+
+    /// Kuratowski pair (x, y).
+    #[must_use]
+    pub fn k_pair(self, other: Self) -> Self {
+        self.clone().singleton().pair(self.pair(other))
+    }
+
+    /// Decomposes a Kuratowski pair.
+    #[must_use]
+    pub fn k_split(&self) -> Option<(&Self, &Self)> {
+        match self.as_slice() {
+            [set] => match set.as_slice() {
+                [a] => Some((a, a)),
+                _ => None,
+            },
+            [fst, snd] => match (fst.as_slice(), snd.as_slice()) {
+                ([a], [b, c]) | ([b, c], [a]) => {
+                    if a == b {
+                        Some((a, c))
+                    } else if a == c {
+                        Some((a, b))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify round-trip between set and string.
+    fn roundtrip(set: &Set, str: &str) {
+        assert_eq!(
+            set,
+            &str.parse().expect("set in roundtrip could not be parsed")
+        );
+        assert_eq!(set.to_string(), str);
+    }
+
+    /// Test [`Mset::into_set`].
+    #[test]
+    fn into_set() {
+        let a: Mset = "{{}, {}, {{}}, {{}, {}}}".parse().unwrap();
+        roundtrip(&a.into_set(), "{{}, {{}}}");
+
+        let b: Mset = "{{}, {}, {{{}}, {}, {}}, {{}, {}, {}}}".parse().unwrap();
+        roundtrip(&b.into_set(), "{{}, {{}}, {{}, {{}}}}");
+    }
+
+    /// Test [`Set::empty`].
+    #[test]
+    fn empty() {
+        roundtrip(&Set::empty(), "{}");
+    }
+
+    /// Test [`Set::singleton`].
+    #[test]
+    fn singleton() {
+        let set = Set::empty().singleton();
+        roundtrip(&set, "{{}}");
+        let set = set.singleton();
+        roundtrip(&set, "{{{}}}");
+    }
+
+    /// Test [`Set::pair`].
+    #[test]
+    fn pair() {
+        let a = Set::empty();
+        let b = Set::empty().singleton();
+        let pair = a.clone().pair(b);
+        roundtrip(&pair, "{{}, {{}}}");
+        let pair = a.clone().pair(a);
+        roundtrip(&pair, "{{}}");
+    }
+
+    /// Test [`Set::nat`].
+    #[test]
+    fn nat() {
+        const NATS: [&str; 4] = ["{}", "{{}}", "{{}, {{}}}", "{{}, {{}}, {{}, {{}}}}"];
+        for (n, nat) in NATS.iter().enumerate() {
+            roundtrip(&Set::nat(n), nat);
+        }
+    }
+
+    /*
+    /// Test [`Set::union`].
+    #[test]
+    fn union() {
+        let a: Mset = "{{}, {}, {{}}, {{}, {}}}".parse().unwrap();
+        let b: Mset = "{{}, {}, {{{}}}, {{}, {}, {}}}".parse().unwrap();
+
+        assert_eq!(&a, &a.clone().union(Mset::empty()));
+        roundtrip(
+            &a.union(b),
+            "{{}, {}, {}, {}, {{}}, {{}, {}}, {{}, {}, {}}, {{{}}}}",
+        );
+    }
+
+    /// Test [`Mset::inter`].
+    #[test]
+    fn inter() {
+        let a: Mset = "{{}, {}, {{}}, {{{}}} {{}, {}}}".parse().unwrap();
+        let b: Mset = "{{}, {}, {{{}}}, {{}, {}, {}}}".parse().unwrap();
+
+        assert_eq!(&Mset::empty(), &a.clone().inter(Mset::empty()));
+        roundtrip(&a.inter(b), "{{}, {}, {{{}}}}");
+    }
+    */
 }
