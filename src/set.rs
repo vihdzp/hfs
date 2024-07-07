@@ -217,6 +217,7 @@ impl Mset {
     /// ## Safety
     ///
     /// You must guarantee that the [`Mset`] satisfy the type invariants for [`Set`].
+    #[must_use]
     pub unsafe fn cast_vec(vec: Vec<Self>) -> Vec<Set> {
         crate::transmute_vec(vec)
     }
@@ -237,6 +238,7 @@ impl Set {
     }
 
     /// Converts `Vec<Set>` into `Vec<Mset>`.
+    #[must_use]
     pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
         unsafe { crate::transmute_vec(vec) }
     }

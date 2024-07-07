@@ -7,6 +7,7 @@ use crate::prelude::*;
 use std::ops::Range;
 
 /// Cardinality with a convenient type signature.
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn card(set: &&Mset) -> usize {
     set.card()
 }
@@ -465,7 +466,7 @@ impl<T> Levels<T> {
     pub unsafe fn step_ahu_gen<U, V, F: FnMut(&T) -> usize, G: FnMut(&mut [U], &T) -> Option<V>>(
         level: &[T],
         cur: &mut Vec<V>,
-        next: &mut Vec<U>,
+        next: &mut [U],
         card: F,
         mut child_fn: G,
     ) -> bool {
@@ -545,10 +546,10 @@ impl<'a> Levels<&'a Mset> {
     pub unsafe fn step_ahu<U, V, F: FnMut(&mut [U], &Mset) -> Option<V>>(
         level: &[&'a Mset],
         cur: &mut Vec<V>,
-        next: &mut Vec<U>,
+        next: &mut [U],
         mut child_fn: F,
     ) -> bool {
-        Self::step_ahu_gen(level, cur, next, card, |i, j| child_fn(i, &j))
+        Self::step_ahu_gen(level, cur, next, card, |i, j| child_fn(i, j))
     }
 
     /// Performs the modified AHU algorithm up to the specified level.
@@ -565,7 +566,7 @@ impl<'a> Levels<&'a Mset> {
         mut child_fn: F,
         level_fn: G,
     ) -> Option<Vec<U>> {
-        self.mod_ahu_gen(level, sets, card, |i, j, k| child_fn(i, j, &k), level_fn)
+        self.mod_ahu_gen(level, sets, card, |i, j, k| child_fn(i, j, k), level_fn)
     }
 
     /// The simplest and most common instantiation of [`Self::mod_ahu`], where we simply find unique
@@ -639,11 +640,12 @@ impl<'a> Levels<&'a Mset> {
                 });
 
                 // Process first set.
-                if !Levels::step_ahu(fst_level, &mut fst_cur, &mut fst_next, |slice, _| {
+                let res = Levels::step_ahu(fst_level, &mut fst_cur, &mut fst_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();
                     fst_fun(&mut sets, children)
-                }) {
+                });
+                if !res {
                     return false;
                 }
             }
@@ -687,7 +689,7 @@ impl Ahu {
         let res = levels.mod_ahu(
             0,
             (),
-            |_, slice, _| {
+            |(), slice, _| {
                 // Reuse buffer. Add enclosing parentheses.
                 slice.sort_unstable();
                 let mut iter = slice.iter_mut();
@@ -713,7 +715,7 @@ impl Ahu {
                 }
                 Some(buf)
             },
-            |_| {},
+            |()| {},
         );
 
         // Safety: the top level of our Levels has a root node.
