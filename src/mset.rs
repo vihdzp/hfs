@@ -148,13 +148,13 @@ impl SetTrait for Mset {
         }
     }
 
-    fn sum_vec(vec: Vec<Self>) -> Self {
-        Self::sum_iter(vec)
-    }
-
     fn sum(mut self, mut other: Self) -> Self {
         self.0.append(&mut other.0);
         self
+    }
+
+    fn sum_vec(vec: Vec<Self>) -> Self {
+        Self::sum_iter(vec)
     }
 
     fn inter_vec(mut vec: Vec<Self>) -> Option<Self> {
@@ -164,11 +164,10 @@ impl SetTrait for Mset {
             1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
             _ => {}
         }
-        let levels =
-            unsafe { Levels::init_iter(vec.iter().map(AsRef::as_ref)).unwrap_unchecked() }.fill();
+        let levels = unsafe { Levels::init_iter(&vec).unwrap_unchecked() }.fill();
 
-        let mut next = levels.ahu(1);
-        let mut iter = unsafe { Levels::child_iter(levels.first(), &mut next) };
+        let next = levels.ahu(1);
+        let mut iter = unsafe { Levels::child_iter(levels.first(), &next) };
 
         // Each entry stores the indices where it's found within the first set, and a counter for
         // how many times it's been seen in every other set.
@@ -187,7 +186,7 @@ impl SetTrait for Mset {
 
         // Count number of appearances in other sets.
         for slice in iter {
-            for set in slice.iter() {
+            for set in slice {
                 match sets.entry(*set) {
                     Entry::Vacant(_) => {}
                     Entry::Occupied(mut entry) => {
@@ -197,15 +196,17 @@ impl SetTrait for Mset {
             }
 
             // Update counts.
-            for (indices, count) in sets.values_mut() {
+            sets.retain(|_, (indices, count)| {
                 indices.truncate(*count);
+                let retain = *count != 0;
                 *count = 0;
-            }
+                retain
+            });
         }
 
         // Take elements from the first set, reuse some other set as a buffer.
         let mut fst = vec.swap_remove(0);
-        let mut snd = vec.swap_remove(1);
+        let mut snd = vec.swap_remove(0);
         snd.clear();
 
         for (indices, _) in sets.into_values() {
@@ -344,11 +345,6 @@ impl Mset {
 mod mset {
     use super::*;
 
-    #[test]
-    fn basic() {
-        println!("{}", Mset::nat(3).pair(Mset::nat(3)));
-    }
-
     /// A multitude of general multisets for general-purpose testing.
     ///
     /// Both the list and each constituent set should be normalized, i.e. in decreasing
@@ -357,6 +353,7 @@ mod mset {
         "{}",
         "{{}}",
         "{{}, {}}",
+        "{{}, {{}}}",
         "{{}, {{}}, {{}, {{}}}}",
         "{{{}, {}}, {{}, {}}}",
         "{{{{{}}}}}",
@@ -373,6 +370,7 @@ mod mset {
         set.to_string()
     }
 
+    /// Removes leading brackets from a string.
     fn inner(str: &str) -> &str {
         &str[1..(str.len() - 1)]
     }
@@ -396,6 +394,10 @@ mod mset {
                 SUITE[i - 1] > SUITE[i],
                 "test suite must be inversely lexicographically ordered"
             )
+        }
+
+        for str in SUITE {
+            assert_eq!(str, &normalize(str), "test suite must round-trip");
         }
 
         let _ = suite();
@@ -428,10 +430,28 @@ mod mset {
         }
     }
 
-    /// Test [`Mset::mem`].
+    /// Test [`Mset::eq`].
     #[test]
-    fn mem() {
-        const MEM: &[(usize, usize)] = &[(0, 1), (0, 2), (0, 3), (1, 3), (2, 4)];
+    fn eq() {
+        for (i, (_, set_1)) in suite().enumerate() {
+            for (j, (_, set_2)) in suite().enumerate() {
+                assert_eq!(
+                    i == j,
+                    set_1 == set_2,
+                    "set equality fail: {set_1} | {set_2}"
+                )
+            }
+        }
+    }
+
+    /// Test [`Mset::contains`].
+    #[test]
+    fn contains() {
+        /// Hardcoded array of pairs that belong in each other.
+        #[rustfmt::skip]
+        const MEM: &[(usize, usize)] = &[
+            (0, 1), (0, 2), (0, 3), (0, 4), (1, 3), (1, 4), (2, 5), (3, 4)
+        ];
 
         for (i, (_, set_1)) in suite().enumerate() {
             for (j, (_, set_2)) in suite().enumerate() {
@@ -489,8 +509,8 @@ mod mset {
             for (_, set_2) in suite() {
                 let inter = set_1.clone().inter(set_2.clone());
                 for set in inter {
-                    assert!(set.contains(&set_1));
-                    assert!(set.contains(&set_2))
+                    assert!(set_1.contains(&set), "{set} not contained in {set_1}");
+                    assert!(set_2.contains(&set), "{set} not contained in {set_2}")
                 }
             }
         }

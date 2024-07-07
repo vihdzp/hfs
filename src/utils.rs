@@ -207,8 +207,7 @@ impl<T> Levels<T> {
         for i in start..end {
             let set = unsafe { *self.data.get_unchecked(i) };
             extend(buf, set);
-            self.data.extend(&*buf);
-            buf.clear();
+            self.data.append(buf);
         }
 
         // Return whether the level is not empty.
@@ -260,8 +259,8 @@ impl<'a> Levels<&'a Mset> {
         mut other: Self,
         mut cb: F,
     ) -> Option<(Self, Self)> {
-        let mut cont_fst = false;
-        let mut cont_snd = false;
+        let mut cont_fst = true;
+        let mut cont_snd = true;
         let mut level = 1;
         let mut buf = Vec::new();
 
@@ -275,14 +274,16 @@ impl<'a> Levels<&'a Mset> {
             }
 
             // Check if finished.
+            if !(cont_fst || cont_snd) {
+                return Some((self, other));
+            }
+
+            // Condition fail.
             if !cb(
                 self.get(level).unwrap_or(&[]),
                 other.get(level).unwrap_or(&[]),
             ) {
                 return None;
-            }
-            if !(cont_fst || cont_snd) {
-                return Some((self, other));
             }
             level += 1;
         }
@@ -656,7 +657,7 @@ impl<'a> Levels<&'a Mset> {
                     children.sort_unstable();
                     Some(snd_fun(&mut sets, children))
                 });
-                std::mem::swap(&mut cur, &mut fst_next);
+                std::mem::swap(&mut cur, &mut snd_next);
 
                 // Process first set.
                 let res = Levels::step_ahu(fst_level, &mut cur, &mut fst_next, |slice, _| {
@@ -667,7 +668,7 @@ impl<'a> Levels<&'a Mset> {
                 if !res {
                     return false;
                 }
-                std::mem::swap(&mut cur, &mut snd_next);
+                std::mem::swap(&mut cur, &mut fst_next);
             }
         }
 

@@ -59,6 +59,7 @@ pub trait SetTrait:
     /// **Internal method.**
     ///
     /// The set as a mutable slice.
+    #[allow(clippy::missing_safety_doc)]
     unsafe fn _as_slice_mut(&mut self) -> &mut [Self];
 
     /// A reference to the inner vector.
@@ -71,6 +72,7 @@ pub trait SetTrait:
     /// A mutable reference to the inner vector.
     ///
     /// Note that internally, both kinds of set store [`Mset`].
+    #[allow(clippy::missing_safety_doc)]
     unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset>;
 
     /// Removes all elements from the set.
@@ -180,9 +182,10 @@ pub trait SetTrait:
     /// Intersection over a vector.
     ///
     /// The intersection of an empty family would be the universal set, which can't be returned.
-    fn inter_vec( vec: Vec<Self>) -> Option<Self>;
+    fn inter_vec(vec: Vec<Self>) -> Option<Self>;
 
     /// Intersection x ∩ y.
+    #[must_use]
     fn inter(self, other: Self) -> Self {
         unsafe { Self::inter_vec(vec![self, other]).unwrap_unchecked() }
     }
@@ -243,7 +246,7 @@ pub trait SetTrait:
             // `fst` must have exactly as many levels as `snd` of the same lengths.
             fst.init_mut(set.as_ref());
             while fst.step(&mut buf) {
-                if let Some(level) = snd.get(fst.last_idx()) {
+                if let Some(level) = snd.get(fst.rank()) {
                     if fst.last().len() != level.len() {
                         return false;
                     }

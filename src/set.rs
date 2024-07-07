@@ -382,8 +382,59 @@ impl SetTrait for Set {
         Self::sum_vec(vec)
     }
 
-    fn inter_vec(_vec: Vec<Self>) -> Option<Self> {
-        todo!()
+    fn inter_vec(mut vec: Vec<Self>) -> Option<Self> {
+        // Check for trivial cases.
+        match vec.len() {
+            0 => return None,
+            1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
+            _ => {}
+        }
+        let levels =
+            unsafe { Levels::init_iter(vec.iter().map(AsRef::as_ref)).unwrap_unchecked() }.fill();
+
+        let next = levels.ahu(1);
+        let mut iter = unsafe { Levels::child_iter(levels.first(), &next) };
+
+        // Each entry stores the index where it's found within the first set, and a boolean for
+        // whether it's been seen in every other set.
+        let mut sets = BTreeMap::new();
+        let fst = unsafe { iter.next().unwrap_unchecked() };
+        for (i, set) in fst.iter().enumerate() {
+            if sets.insert(*set, (i, false)).is_some() {
+                unsafe { std::hint::unreachable_unchecked() }
+            }
+        }
+
+        // Look for appearances in other sets.
+        for slice in iter {
+            for set in slice {
+                match sets.entry(*set) {
+                    Entry::Vacant(_) => {}
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().1 = true;
+                    }
+                }
+            }
+
+            // Update counts.
+            sets.retain(|_, (_, count)| {
+                let retain = *count;
+                *count = false;
+                retain
+            });
+        }
+
+        // Take elements from the first set, reuse some other set as a buffer.
+        let mut fst = vec.swap_remove(0);
+        let mut snd = vec.swap_remove(0);
+        snd.clear();
+
+        for (i, _) in sets.into_values() {
+            let set = std::mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+            snd.insert_mut(set);
+        }
+
+        Some(snd)
     }
 
     fn powerset(self) -> Self {
@@ -543,6 +594,7 @@ impl Set {
 
 // -------------------- Constructions -------------------- //
 
+/*
 impl Set {
     /*
     /// Set union x ∪ y.
@@ -687,3 +739,4 @@ mod tests {
     }
     */
 }
+*/
