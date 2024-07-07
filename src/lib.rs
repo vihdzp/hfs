@@ -243,15 +243,15 @@ pub trait SetTrait:
         self.lt(other)
     }
 
-    /// Membership relation ∈.
-    fn contains(&self, other: &Self) -> bool {
+    /// A filter over elements equal to another.
+    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
         // Safety: this buffer is only used to initialize the first set in `self`.
         let mut fst = unsafe { Levels::empty() };
         let snd = Levels::init(other.as_ref()).fill();
         let mut buf = Vec::new();
 
         // Check equality between every set in `self` and `other`.
-        self.iter().any(move |set| {
+        self.iter().filter(move |&set| {
             // `fst` must have exactly as many levels as `snd` of the same lengths.
             fst.init_mut(set.as_ref());
             while fst.step(&mut buf) {
@@ -267,6 +267,11 @@ pub trait SetTrait:
             // Safety: both `fst` and `snd` are valid for `Levels<&Self>`.
             fst.level_len() == snd.level_len() && unsafe { Self::_levels_subset(&fst, &snd) }
         })
+    }
+
+    /// Membership relation ∈.
+    fn contains(&self, other: &Self) -> bool {
+        self.filter_eq(other).next().is_some()
     }
 
     /// Checks whether two sets are disjoint.

@@ -213,7 +213,7 @@ impl<T> Levels<T> {
         // We write them into an auxiliary buffer first, as the reference to `set` might otherwise
         // be invalidated by an array resize.
         for i in start..end {
-            // Safety: `i < end ≤ self.data.len()``
+            // Safety: `i < end ≤ self.data.len()`
             let set = unsafe { *self.data.get_unchecked(i) };
             extend(buf, set);
             self.data.append(buf);
@@ -236,7 +236,7 @@ impl<T> Levels<T> {
     /// - `T`: pointer type to a set-like object.
     /// - `extend`: a function extending an array with the children of a set `T`.
     #[must_use]
-    fn fill_gen<F: FnMut(&mut Vec<T>, T)>(mut self, mut extend: F) -> Self
+    pub(crate) fn fill_gen<F: FnMut(&mut Vec<T>, T)>(mut self, mut extend: F) -> Self
     where
         T: Copy,
     {

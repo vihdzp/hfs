@@ -170,48 +170,39 @@ impl SetTrait for Mset {
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { Levels::child_iter(levels.first(), &next) }.enumerate();
 
-        // Each entry stores pointers to where it's found in `vec`, and a counter for how many times
+        // Each entry stores indices to where it's found in `vec`, and a counter for how many times
         // it's been seen in every other set.
         //
-        // Pointers are not strictly necessary, but they're by far the most direct way to refer to
-        // an element of an element of a vector.
+        // It should be possible to use a single pointer instead of two indices. But I've got no
+        // idea how to make this work safely.
         //
         // Safety: we already know there's at least 2 sets.
-        let (fst, ptr) = unsafe {
-            (
-                iter.next().unwrap_unchecked().1,
-                vec.get_unchecked(0).as_slice().as_ptr(),
-            )
-        };
+        let fst = unsafe { iter.next().unwrap_unchecked().1 };
         let mut sets = BTreeMap::new();
         for (i, set) in fst.iter().enumerate() {
-            // Safety: this is an allocation within the first set.
-            let el_ptr = unsafe { ptr.add(i) };
+            let el_idx = (0, i);
             match sets.entry(*set) {
                 Entry::Vacant(entry) => {
-                    entry.insert((smallvec![el_ptr], 0));
+                    entry.insert((smallvec![el_idx], 0));
                 }
                 Entry::Occupied(mut entry) => {
-                    entry.get_mut().0.push(el_ptr);
+                    entry.get_mut().0.push(el_idx);
                 }
             }
         }
 
         // Count number of appearances in other sets.
         for (n, slice) in iter {
-            // Safety: there's as many sets as elements in the iterator.
-            let ptr = unsafe { vec.get_unchecked(n).as_slice().as_ptr() };
             for (i, set) in slice.iter().enumerate() {
-                // Safety: this is an allocation within the n-th set.
-                let el_ptr = unsafe { ptr.add(i) };
+                let el_idx = (n, i);
                 match sets.entry(*set) {
                     Entry::Vacant(entry) => {
-                        entry.insert((smallvec![el_ptr], 1));
+                        entry.insert((smallvec![el_idx], 1));
                     }
                     Entry::Occupied(mut entry) => {
                         let (indices, count) = entry.get_mut();
                         if indices.len() == *count {
-                            indices.push(el_ptr);
+                            indices.push(el_idx);
                         }
                         *count += 1;
                     }
@@ -227,9 +218,9 @@ impl SetTrait for Mset {
         // Get all the sets we need.
         let mut union = Self::empty();
         for (indices, _) in sets.into_values() {
-            for ptr in indices {
-                // Safety: we have mutable access to the vector.
-                let set = mem::take(unsafe { &mut *(ptr.cast_mut()) });
+            for (n, i) in indices {
+                // Safety: all the indices we built are valid for this sort of indexing.
+                let set = mem::take(unsafe { vec.get_unchecked_mut(n).0.get_unchecked_mut(i) });
                 union.insert_mut(set);
             }
         }
@@ -422,6 +413,11 @@ impl Mset {
     pub fn sum_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
         iter.into_iter().flatten().collect()
     }
+
+    /// Count multiplicity of an element in a set.
+    pub fn count(&self, other: &Self) -> usize {
+        self.filter_eq(other).count()
+    }
 }
 
 /// Tests for [`Mset`].
@@ -546,7 +542,7 @@ mod mset {
         }
     }
 
-    /// Test [`Mset::union`].
+    /// Test [`Mset::sum`].
     #[test]
     fn sum() {
         // Remove initial parentheses.
@@ -567,9 +563,9 @@ mod mset {
     fn union() {
         for (_, set_1) in suite() {
             for (_, set_2) in suite() {
-                let union = set_1.clone().inter(set_2.clone());
+                let union = set_1.clone().union(set_2.clone());
                 for set in [&set_1, &set_2] {
-                    assert!(union.subset(set), "{set} not a subset of {union}");
+                    assert!(set.subset(&union), "{set} not a subset of {union}");
                 }
             }
         }
