@@ -111,7 +111,7 @@ impl SetTrait for Mset {
         &self.0
     }
 
-    unsafe fn _as_slice_mut(&mut self) -> &mut [Self] {
+    unsafe fn _as_mut_slice(&mut self) -> &mut [Self] {
         &mut self.0
     }
 
@@ -119,7 +119,7 @@ impl SetTrait for Mset {
         &self.0
     }
 
-    unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset> {
+    unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset> {
         &mut self.0
     }
 
@@ -161,13 +161,13 @@ impl SetTrait for Mset {
         // Check for trivial cases.
         match vec.len() {
             0 => return Self::empty(),
-            1 => return unsafe { vec.pop().unwrap_unchecked() },
+            1 => return vec.pop().unwrap(),
             _ => {}
         }
 
-        let levels = unsafe { Levels::init_iter(&vec).unwrap_unchecked() }.fill();
-
+        let levels = Levels::init_iter(&vec).unwrap().fill();
         let next = levels.ahu(1);
+        // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { Levels::child_iter(levels.first(), &next) }.enumerate();
 
         // Each entry stores pointers to where it's found in `vec`, and a counter for how many times
@@ -175,10 +175,17 @@ impl SetTrait for Mset {
         //
         // Pointers are not strictly necessary, but they're by far the most direct way to refer to
         // an element of an element of a vector.
+        //
+        // Safety: we already know there's at least 2 sets.
+        let (fst, ptr) = unsafe {
+            (
+                iter.next().unwrap_unchecked().1,
+                vec.get_unchecked(0).as_slice().as_ptr(),
+            )
+        };
         let mut sets = BTreeMap::new();
-        let (_, fst) = unsafe { iter.next().unwrap_unchecked() };
-        let ptr = unsafe { vec.get_unchecked(0).as_slice().as_ptr() };
         for (i, set) in fst.iter().enumerate() {
+            // Safety: this is an allocation within the first set.
             let el_ptr = unsafe { ptr.add(i) };
             match sets.entry(*set) {
                 Entry::Vacant(entry) => {
@@ -191,10 +198,12 @@ impl SetTrait for Mset {
         }
 
         // Count number of appearances in other sets.
-        for (i, slice) in iter {
-            let ptr = unsafe { vec.get_unchecked(i).as_slice().as_ptr() };
-            for (j, set) in slice.iter().enumerate() {
-                let el_ptr = unsafe { ptr.add(j) };
+        for (n, slice) in iter {
+            // Safety: there's as many sets as elements in the iterator.
+            let ptr = unsafe { vec.get_unchecked(n).as_slice().as_ptr() };
+            for (i, set) in slice.iter().enumerate() {
+                // Safety: this is an allocation within the n-th set.
+                let el_ptr = unsafe { ptr.add(i) };
                 match sets.entry(*set) {
                     Entry::Vacant(entry) => {
                         entry.insert((smallvec![el_ptr], 1));
@@ -216,10 +225,10 @@ impl SetTrait for Mset {
         }
 
         // Get all the sets we need.
-        // Safety: we do in have mutable access to the vector.
         let mut union = Self::empty();
         for (indices, _) in sets.into_values() {
             for ptr in indices {
+                // Safety: we have mutable access to the vector.
                 let set = mem::take(unsafe { &mut *(ptr.cast_mut()) });
                 union.insert_mut(set);
             }
@@ -232,18 +241,21 @@ impl SetTrait for Mset {
         // Check for trivial cases.
         match vec.len() {
             0 => return None,
-            1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
+            1 => return Some(vec.pop().unwrap()),
             _ => {}
         }
-        let levels = unsafe { Levels::init_iter(&vec).unwrap_unchecked() }.fill();
+        let levels = Levels::init_iter(&vec).unwrap().fill();
 
         let next = levels.ahu(1);
+        // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { Levels::child_iter(levels.first(), &next) };
 
         // Each entry stores the indices where it's found within the first set, and a counter for
         // how many times it's been seen in every other set.
-        let mut sets = BTreeMap::new();
+        //
+        // Safety: we already know there's at least 2 sets.
         let fst = unsafe { iter.next().unwrap_unchecked() };
+        let mut sets = BTreeMap::new();
         for (i, set) in fst.iter().enumerate() {
             match sets.entry(*set) {
                 Entry::Vacant(entry) => {
@@ -282,7 +294,8 @@ impl SetTrait for Mset {
 
         for (indices, _) in sets.into_values() {
             for i in indices {
-                let set = mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+                // Safety: all the indices we built are valid for the first set.
+                let set = mem::take(unsafe { fst._as_mut_slice().get_unchecked_mut(i) });
                 snd.insert_mut(set);
             }
         }
@@ -391,17 +404,17 @@ impl SetTrait for Mset {
 
 impl Mset {
     /// The set as a mutable slice.
-    pub fn as_slice_mut(&mut self) -> &mut [Self] {
+    pub fn as_mut_slice(&mut self) -> &mut [Self] {
         &mut self.0
     }
 
     /// A mutable reference to the inner vector.
-    pub fn as_vec_mut(&mut self) -> &mut Vec<Self> {
+    pub fn as_mut_vec(&mut self) -> &mut Vec<Self> {
         &mut self.0
     }
 
     /// Mutably iterate over the elements of the set.
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<Self> {
+    pub fn iter_mut(&mut self) -> slice::IterMut<Self> {
         self.0.iter_mut()
     }
 

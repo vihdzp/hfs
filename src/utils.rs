@@ -114,6 +114,7 @@ impl<T> Levels<T> {
     /// The rank of the set, one less than the number of levels.
     #[must_use]
     pub fn rank(&self) -> usize {
+        // Safety: there's always at least one level.
         unsafe { self.level_len().unchecked_sub(1) }
     }
 
@@ -136,18 +137,21 @@ impl<T> Levels<T> {
     #[must_use]
     pub fn get(&self, level: usize) -> Option<&[T]> {
         self.get_range(level)
+            // Safety: our ranges are always valid for indexing.
             .map(|range| unsafe { self.data.get_unchecked(range) })
     }
 
     /// Gets the mutable slice corresponding to a given level.
     pub fn get_mut(&mut self, level: usize) -> Option<&mut [T]> {
         self.get_range(level)
+            // Safety: our ranges are always valid for indexing.
             .map(|range| unsafe { self.data.get_unchecked_mut(range) })
     }
 
     /// Returns the last element in `indices`.
     #[must_use]
     pub fn last_idx(&self) -> usize {
+        // Safety: there's always at least one level.
         unsafe { *self.indices.last().unwrap_unchecked() }
     }
 
@@ -155,23 +159,27 @@ impl<T> Levels<T> {
     #[must_use]
     pub fn last(&self) -> &[T] {
         let idx = self.last_idx();
+        // Safety: there's always at least one level.
         unsafe { self.data.get_unchecked(idx..) }
     }
 
     /// Returns a mutable reference to the last level.
     pub fn last_mut(&mut self) -> &mut [T] {
         let idx = self.last_idx();
+        // Safety: there's always at least one level.
         unsafe { self.data.get_unchecked_mut(idx..) }
     }
 
     /// Returns the first level.
     #[must_use]
     pub fn first(&self) -> &[T] {
+        // Safety: there's always at least one level.
         unsafe { self.get(0).unwrap_unchecked() }
     }
 
     /// Returns a mutable reference to the first level.
     pub fn first_mut(&mut self) -> &mut [T] {
+        // Safety: there's always at least one level.
         unsafe { self.get_mut(0).unwrap_unchecked() }
     }
 }
@@ -192,7 +200,7 @@ impl<T> Levels<T> {
     /// - `T`: pointer type to a set-like object.
     /// - `extend`: a function extending an array with the children of a set `T`.
     /// - `buf`: a buffer for calculations.
-    pub fn step_gen<F: FnMut(&mut Vec<T>, T)>(&mut self, mut extend: F, buf: &mut Vec<T>) -> bool
+    fn step_gen<F: FnMut(&mut Vec<T>, T)>(&mut self, mut extend: F, buf: &mut Vec<T>) -> bool
     where
         T: Copy,
     {
@@ -205,6 +213,7 @@ impl<T> Levels<T> {
         // We write them into an auxiliary buffer first, as the reference to `set` might otherwise
         // be invalidated by an array resize.
         for i in start..end {
+            // Safety: `i < end ≤ self.data.len()``
             let set = unsafe { *self.data.get_unchecked(i) };
             extend(buf, set);
             self.data.append(buf);
@@ -227,7 +236,7 @@ impl<T> Levels<T> {
     /// - `T`: pointer type to a set-like object.
     /// - `extend`: a function extending an array with the children of a set `T`.
     #[must_use]
-    pub fn fill_gen<F: FnMut(&mut Vec<T>, T)>(mut self, mut extend: F) -> Self
+    fn fill_gen<F: FnMut(&mut Vec<T>, T)>(mut self, mut extend: F) -> Self
     where
         T: Copy,
     {
@@ -310,8 +319,8 @@ impl Levels<*mut Mset> {
     /// set and trying to access its children will often result in an invalid dereference.
     #[must_use]
     pub fn fill_mut(self) -> Self {
-        // The set is not mutated, so the pointers remain valid to dereference.
         self.fill_gen(|buf, set| {
+            // Safety: the set is not mutated, so the pointers remain valid to dereference.
             buf.extend(unsafe { &mut *set }.iter_mut().map(std::ptr::from_mut));
         })
     }
@@ -323,18 +332,20 @@ impl<T> Levels<T> {
     /// Iterates over all levels.
     #[must_use]
     pub fn iter(&self) -> traits!(&[T]) {
+        // Safety: this is the valid range of levels.
         (0..self.level_len()).map(|r| unsafe { self.get(r).unwrap_unchecked() })
     }
 
     /// Mutably iterates over all levels.
     pub fn iter_mut(&mut self) -> traits!(&mut [T]) {
-        // Safety: these slices are all disjoint.
         let indices = &self.indices;
         let len = self.data.len();
         let ptr = self.data.as_mut_ptr();
+
+        // Safety: these slices are all disjoint.
         indices.iter().enumerate().map(move |(r, start)| unsafe {
             let end = indices.get(r + 1).copied().unwrap_or(len);
-            std::slice::from_raw_parts_mut(ptr.add(*start), end.unchecked_sub(*start))
+            slice::from_raw_parts_mut(ptr.add(*start), end.unchecked_sub(*start))
         })
     }
 
@@ -371,8 +382,7 @@ impl<T> Levels<T> {
         next: &'a [U],
         card: F,
     ) -> traits!(&'a [U], 'a) {
-        Self::child_iter_range_gen(level, card)
-            .map(move |range| unsafe { next.get_unchecked(range) })
+        Self::child_iter_range_gen(level, card).map(move |range| next.get_unchecked(range))
     }
 
     /// For each set in a level within [`Levels`], finds the mutable slice representing its children
@@ -388,11 +398,10 @@ impl<T> Levels<T> {
         next: &'a mut [U],
         card: F,
     ) -> traits!(&'a mut [U], 'a) {
-        // Safety: all these slices are disjoint.
         let next = next.as_mut_ptr();
-        Self::child_iter_range_gen(level, card).map(move |range| unsafe {
-            std::slice::from_raw_parts_mut(next.add(range.start), range.len())
-        })
+        // Safety: all these slices are disjoint.
+        Self::child_iter_range_gen(level, card)
+            .map(move |range| slice::from_raw_parts_mut(next.add(range.start), range.len()))
     }
 }
 
@@ -445,6 +454,7 @@ impl<T: Display> Display for Levels<T> {
         for (i, level) in self.iter().enumerate() {
             let mut iter = level.iter();
 
+            // Safety: no level can be empty.
             write!(f, "Level {i:>digits$}: {}", unsafe {
                 iter.next().unwrap_unchecked()
             })?;
@@ -452,7 +462,6 @@ impl<T: Display> Display for Levels<T> {
             for next in iter {
                 write!(f, " | {next}")?;
             }
-
             writeln!(f)?;
         }
 
@@ -490,13 +499,11 @@ impl<T> Levels<T> {
         mut child_fn: G,
     ) -> bool {
         cur.clear();
-        unsafe {
-            for (i, slice) in Levels::child_iter_mut_gen(level, next, card).enumerate() {
-                if let Some(idx) = child_fn(slice, level.get_unchecked(i)) {
-                    cur.push(idx);
-                } else {
-                    return false;
-                }
+        for (i, slice) in Levels::child_iter_mut_gen(level, next, card).enumerate() {
+            if let Some(idx) = child_fn(slice, level.get_unchecked(i)) {
+                cur.push(idx);
+            } else {
+                return false;
             }
         }
 
@@ -516,7 +523,11 @@ impl<T> Levels<T> {
     /// - `level`: a level within [`Levels`].
     /// - `card`: custom cardinality function.
     /// - `child_fn`: the function mapping the slice of children into the assigned value.
-    pub fn mod_ahu_gen<
+    ///
+    /// ## Safety
+    ///
+    /// The sum of the cardinalities in each level cannot exceed the length of the next.
+    pub unsafe fn mod_ahu_gen<
         U,
         V,
         F: FnMut(&T) -> usize,
@@ -534,12 +545,9 @@ impl<T> Levels<T> {
         let mut next = Vec::new();
 
         for level in self.iter().skip(level).rev() {
-            let res = unsafe {
-                Self::step_ahu_gen(level, &mut cur, &mut next, &mut card, |i, j| {
-                    child_fn(&mut sets, i, j)
-                })
-            };
-            if !res {
+            if !Self::step_ahu_gen(level, &mut cur, &mut next, &mut card, |i, j| {
+                child_fn(&mut sets, i, j)
+            }) {
                 return None;
             }
 
@@ -586,25 +594,27 @@ impl<'a> Levels<&'a Mset> {
         mut child_fn: F,
         level_fn: G,
     ) -> Option<Vec<U>> {
-        self.mod_ahu_gen(level, sets, card, |i, j, k| child_fn(i, j, k), level_fn)
+        // Safety: all safe and public ways we provide to build `Levels<&Mset>` satisfy the required
+        // invariant.
+        unsafe { self.mod_ahu_gen(level, sets, card, |i, j, k| child_fn(i, j, k), level_fn) }
     }
 
     /// The simplest and most common instantiation of [`Self::mod_ahu`], where we simply find unique
     /// labels for the sets at a given level.
     pub fn ahu(&self, level: usize) -> Vec<usize> {
-        unsafe {
-            self.mod_ahu(
-                level,
-                BTreeMap::new(),
-                |sets, slice, _| {
-                    slice.sort_unstable();
-                    let children: SmallVec<_> = slice.iter().copied().collect();
-                    Some(btree_index(sets, children))
-                },
-                BTreeMap::clear,
-            )
-            .unwrap_unchecked()
-        }
+        let ahu = self.mod_ahu(
+            level,
+            BTreeMap::new(),
+            |sets, slice, _| {
+                slice.sort_unstable();
+                let children: SmallVec<_> = slice.iter().copied().collect();
+                Some(btree_index(sets, children))
+            },
+            BTreeMap::clear,
+        );
+
+        // Safety: `Some(x) != None`.
+        unsafe { ahu.unwrap_unchecked() }
     }
 
     /// Returns whether `self` is a subset of `other`, meaning it contains each set at least as many
@@ -646,10 +656,13 @@ impl<'a> Levels<&'a Mset> {
 
         let mut sets = BTreeMap::new();
         for r in (1..other.level_len()).rev() {
-            sets.clear();
-            let fst_level = self.get(r).unwrap_or_default();
+            // Safety: `other` has at least as many levels as `self`.
             let snd_level = unsafe { other.get(r).unwrap_unchecked() };
+            let fst_level = self.get(r).unwrap_or_default();
+            sets.clear();
 
+            // Safety: the invariant is handled just the same as in `Self::mod_ahu`, just with two
+            // sets at once.
             unsafe {
                 // Processs second set.
                 Levels::step_ahu(snd_level, &mut cur, &mut snd_next, |slice, _| {

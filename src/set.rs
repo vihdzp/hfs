@@ -32,6 +32,7 @@ impl From<Set> for Mset {
 
 impl From<Set> for Vec<Set> {
     fn from(set: Set) -> Self {
+        // Safety: elements of `Set` are valid for `Set`.
         unsafe { Mset::cast_vec(set.0 .0) }
     }
 }
@@ -71,7 +72,7 @@ unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
     assert_eq!(mem::align_of::<T>(), mem::align_of::<U>());
 
     let mut vec = mem::ManuallyDrop::new(vec);
-    unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
+    Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity())
 }
 
 /// Orders and deduplicates a set based on the corresponding keys.
@@ -116,23 +117,22 @@ impl Mset {
         let mut buf = Vec::new();
         let mut buf_pairs = Vec::new();
 
-        levels.mod_ahu_gen(
-            1,
-            BTreeMap::new(),
-            // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
-            // still valid.
-            |s| unsafe { &*(s.cast_const()) }.card(),
-            |sets, slice, &set| {
-                // Deduplicate the set.
-                unsafe {
+        // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
+        // still valid, as does our cardinality function.
+        unsafe {
+            levels.mod_ahu_gen(
+                1,
+                BTreeMap::new(),
+                |s| (*s.cast_const()).card(),
+                |sets, slice, &set| {
+                    // Deduplicate the set.
                     dedup_by(&mut (*set).0, slice, &mut buf, &mut buf_pairs);
-                };
-
-                let children: SmallVec<_> = buf_pairs.iter().map(|(_, k)| *k).collect();
-                Some(btree_index(sets, children))
-            },
-            BTreeMap::clear,
-        );
+                    let children: SmallVec<_> = buf_pairs.iter().map(|(_, k)| *k).collect();
+                    Some(btree_index(sets, children))
+                },
+                BTreeMap::clear,
+            );
+        }
 
         Set(self)
     }
@@ -187,6 +187,7 @@ impl Mset {
     #[must_use]
     pub fn as_set_checked(&self) -> Option<&Set> {
         if self.is_set() {
+            // Safety: both types have the same layout, and we just checked the invariant.
             Some(unsafe { &*(std::ptr::from_ref(self).cast()) })
         } else {
             None
@@ -209,6 +210,7 @@ impl Mset {
     #[must_use]
     pub fn as_set_mut_checked(&mut self) -> Option<&mut Set> {
         if self.is_set() {
+            // Safety: both types have the same layout, and we just checked the invariant.
             Some(unsafe { &mut *(std::ptr::from_mut(self).cast()) })
         } else {
             None
@@ -241,6 +243,7 @@ impl Set {
     /// Converts `Vec<Set>` into `Vec<Mset>`.
     #[must_use]
     pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
+        // Safety: `Set` and `Mset` have the same layout.
         unsafe { transmute_vec(vec) }
     }
 }
@@ -263,18 +266,20 @@ impl Iterator for Cast<std::vec::IntoIter<Mset>> {
     }
 }
 
-impl<'a> Iterator for Cast<std::slice::Iter<'a, Mset>> {
+impl<'a> Iterator for Cast<slice::Iter<'a, Mset>> {
     type Item = &'a Set;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Safety: we're iterating over a set.
         self.0.next().map(|s| unsafe { s.as_set_unchecked() })
     }
 }
 
-impl<'a> Iterator for Cast<std::slice::IterMut<'a, Mset>> {
+impl<'a> Iterator for Cast<slice::IterMut<'a, Mset>> {
     type Item = &'a mut Set;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Safety: we're iterating over a set.
         self.0.next().map(|s| unsafe { s.as_set_mut_unchecked() })
     }
 }
@@ -292,7 +297,7 @@ impl IntoIterator for Set {
 #[allow(clippy::into_iter_without_iter)]
 impl<'a> IntoIterator for &'a Set {
     type Item = &'a Set;
-    type IntoIter = Cast<std::slice::Iter<'a, Mset>>;
+    type IntoIter = Cast<slice::Iter<'a, Mset>>;
 
     fn into_iter(self) -> Self::IntoIter {
         Cast(self.0.iter())
@@ -301,7 +306,7 @@ impl<'a> IntoIterator for &'a Set {
 
 impl<'a> IntoIterator for &'a mut Set {
     type Item = &'a mut Set;
-    type IntoIter = Cast<std::slice::IterMut<'a, Mset>>;
+    type IntoIter = Cast<slice::IterMut<'a, Mset>>;
 
     fn into_iter(self) -> Self::IntoIter {
         Cast(self.0.iter_mut())
@@ -317,20 +322,22 @@ impl SetTrait for Set {
 
     fn as_slice(&self) -> &[Self] {
         let slice = self.0.as_slice();
-        unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
+        // Safety: Set and Mset have the same layout.
+        unsafe { slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
     }
 
-    unsafe fn _as_slice_mut(&mut self) -> &mut [Self] {
-        let slice = self.0.as_slice_mut();
-        unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
+    unsafe fn _as_mut_slice(&mut self) -> &mut [Self] {
+        let slice = self.0.as_mut_slice();
+        // Safety: Set and Mset have the same layout.
+        slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len())
     }
 
     fn as_vec(&self) -> &Vec<Mset> {
         self.0.as_vec()
     }
 
-    unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset> {
-        self.0._as_vec_mut()
+    unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset> {
+        self.0._as_mut_vec()
     }
 
     // -------------------- Constructions -------------------- //
@@ -351,6 +358,7 @@ impl SetTrait for Set {
 
     fn select_mut<P: FnMut(&Set) -> bool>(&mut self, mut pred: P) {
         self.0
+            // Safety: we're iterating over a set.
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
     }
 
@@ -362,8 +370,9 @@ impl SetTrait for Set {
             return Self::empty();
         }
 
+        let keys = levels.fill().ahu(0);
+        // Safety: `keys` has as many elements as `vec`.
         unsafe {
-            let keys = levels.fill().ahu(1);
             dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
         }
 
@@ -378,21 +387,26 @@ impl SetTrait for Set {
         // Check for trivial cases.
         match vec.len() {
             0 => return None,
-            1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
+            1 => return Some(vec.pop().unwrap()),
             _ => {}
         }
-        let levels =
-            unsafe { Levels::init_iter(vec.iter().map(AsRef::as_ref)).unwrap_unchecked() }.fill();
+        let levels = Levels::init_iter(vec.iter().map(AsRef::as_ref))
+            .unwrap()
+            .fill();
 
         let next = levels.ahu(1);
+        // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { Levels::child_iter(levels.first(), &next) };
 
         // Each entry stores the index where it's found within the first set, and a boolean for
         // whether it's been seen in every other set.
-        let mut sets = BTreeMap::new();
+        //
+        // Safety: we already know there's at least 2 sets.
         let fst = unsafe { iter.next().unwrap_unchecked() };
+        let mut sets = BTreeMap::new();
         for (i, set) in fst.iter().enumerate() {
             if sets.insert(*set, (i, false)).is_some() {
+                // Safety: sets don't have duplicates.
                 unsafe { hint::unreachable_unchecked() }
             }
         }
@@ -422,7 +436,8 @@ impl SetTrait for Set {
         snd.clear();
 
         for (i, _) in sets.into_values() {
-            let set = mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+            // Safety: all the indices we built are valid for the first set.
+            let set = mem::take(unsafe { fst._as_mut_slice().get_unchecked_mut(i) });
             snd.insert_mut(set);
         }
 
@@ -455,8 +470,8 @@ impl SetTrait for Set {
             // Add found sets. No set can be duplicated.
             |sets, children| {
                 let len = sets.len();
-                // Very cheeky and probably unhelpful use of unsafe code.
                 if sets.insert(children, len).is_some() {
+                    // Safety: sets don't have duplicates.
                     unsafe { hint::unreachable_unchecked() }
                 }
                 len
@@ -488,6 +503,8 @@ impl SetTrait for Set {
         // Compute AHU encodings for all but the elements of the union.
         for level in levels.iter().skip(2).rev() {
             sets.clear();
+
+            // Safety: the length of `next` is exactly the sum of cardinalities in `level`.
             unsafe {
                 Levels::step_ahu(level, &mut cur, &mut next, |slice, _| {
                     slice.sort_unstable();
@@ -502,6 +519,8 @@ impl SetTrait for Set {
         // Compute the encodings for the union. Return whether we find anything twice.
         let mut dummy: Vec<()> = Vec::new();
         sets.clear();
+
+        // Safety: the length of next is exactly the sum of cardinalities in `elements`.
         unsafe {
             Levels::step_ahu(elements, &mut dummy, &mut next, |slice, _| {
                 slice.sort_unstable();
@@ -536,8 +555,8 @@ impl Set {
     ///
     /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
     /// elements equal.
-    pub unsafe fn as_slice_mut(&mut self) -> &mut [Self] {
-        self._as_slice_mut()
+    pub unsafe fn as_mut_slice(&mut self) -> &mut [Self] {
+        self._as_mut_slice()
     }
 
     /// A mutable reference to the inner vector.
@@ -546,7 +565,7 @@ impl Set {
     ///
     /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
     /// elements equal.
-    pub unsafe fn as_vec_mut(&mut self) -> &mut Vec<Mset> {
+    pub unsafe fn as_mut_vec(&mut self) -> &mut Vec<Mset> {
         &mut self.0 .0
     }
 
@@ -556,8 +575,8 @@ impl Set {
     ///
     /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
     /// elements equal.
-    pub unsafe fn iter_mut(&mut self) -> std::slice::IterMut<Self> {
-        self.as_slice_mut().iter_mut()
+    pub unsafe fn iter_mut(&mut self) -> slice::IterMut<Self> {
+        self.as_mut_slice().iter_mut()
     }
 
     /// In-place set insertion x ∪ {y}. Does not check whether the set being inserted is already in
@@ -620,13 +639,15 @@ impl Set {
     /// Decomposes a Kuratowski pair.
     #[must_use]
     pub fn into_ksplit(mut self) -> Option<(Self, Self)> {
+        // Safety: our usage of `as_mut_slice` causes no issues, as the set is dropped and discarded
+        // when the method returns.
         unsafe {
-            match self.as_slice_mut() {
-                [set] => match set.as_slice_mut() {
+            match self.as_mut_slice() {
+                [set] => match set.as_mut_slice() {
                     [a] => Some((a.clone(), mem::take(a))),
                     _ => None,
                 },
-                [fst, snd] => match (fst.as_slice_mut(), snd.as_slice_mut()) {
+                [fst, snd] => match (fst.as_mut_slice(), snd.as_mut_slice()) {
                     ([a], [b, c]) | ([b, c], [a]) => {
                         if a == b {
                             Some((mem::take(a), mem::take(c)))

@@ -4,7 +4,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::missing_docs_in_private_items)]
-//#![warn(clippy::undocumented_unsafe_blocks)]
+#![warn(clippy::undocumented_unsafe_blocks)]
 
 pub mod mset;
 pub mod prelude;
@@ -62,7 +62,7 @@ pub trait SetTrait:
     ///
     /// The set as a mutable slice.
     #[allow(clippy::missing_safety_doc)]
-    unsafe fn _as_slice_mut(&mut self) -> &mut [Self];
+    unsafe fn _as_mut_slice(&mut self) -> &mut [Self];
 
     /// A reference to the inner vector.
     ///
@@ -75,12 +75,12 @@ pub trait SetTrait:
     ///
     /// Note that internally, both kinds of set store [`Mset`].
     #[allow(clippy::missing_safety_doc)]
-    unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset>;
+    unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset>;
 
     /// Removes all elements from the set.
     fn clear(&mut self) {
         // Safety: The empty set is valid for both types.
-        unsafe { self._as_vec_mut() }.clear();
+        unsafe { self._as_mut_vec() }.clear();
     }
 
     /// Set cardinality.
@@ -99,7 +99,7 @@ pub trait SetTrait:
     }
 
     /// Iterate over the elements of the set.
-    fn iter(&self) -> std::slice::Iter<Self> {
+    fn iter(&self) -> slice::Iter<Self> {
         self.as_slice().iter()
     }
 
@@ -314,6 +314,7 @@ macro_rules! impl_partial_ord {
         impl PartialEq for $t {
             fn eq(&self, other: &Self) -> bool {
                 if let Some((fst, snd)) = Levels::eq_levels(self.as_ref(), other.as_ref()) {
+                    // Safety: both levels come from the appropriate set type.
                     unsafe { <$t>::_levels_subset(&fst, &snd) }
                 } else {
                     false
@@ -324,6 +325,7 @@ macro_rules! impl_partial_ord {
         impl PartialOrd for $t {
             fn le(&self, other: &Self) -> bool {
                 if let Some((fst, snd)) = Levels::le_levels(self.as_ref(), other.as_ref()) {
+                    // Safety: both levels come from the appropriate set type.
                     unsafe { <$t>::_levels_subset(&fst, &snd) }
                 } else {
                     false
