@@ -119,8 +119,8 @@ impl SetTrait for Mset {
         &self.0
     }
 
-    fn clear(&mut self) {
-        self.0.clear();
+    unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset> {
+        &mut self.0
     }
 
     // -------------------- Constructions -------------------- //
@@ -146,6 +146,76 @@ impl SetTrait for Mset {
                 self.0.swap_remove(i);
             }
         }
+    }
+
+    fn sum_vec(vec: Vec<Self>) -> Self {
+        Self::sum_iter(vec)
+    }
+
+    fn sum(mut self, mut other: Self) -> Self {
+        self.0.append(&mut other.0);
+        self
+    }
+
+    fn inter_vec(mut vec: Vec<Self>) -> Option<Self> {
+        // Check for trivial cases.
+        match vec.len() {
+            0 => return None,
+            1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
+            _ => {}
+        }
+        let levels =
+            unsafe { Levels::init_iter(vec.iter().map(AsRef::as_ref)).unwrap_unchecked() }.fill();
+
+        let mut next = levels.ahu(1);
+        let mut iter = unsafe { Levels::child_iter(levels.first(), &mut next) };
+
+        // Each entry stores the indices where it's found within the first set, and a counter for
+        // how many times it's been seen in every other set.
+        let mut sets = BTreeMap::new();
+        let fst = unsafe { iter.next().unwrap_unchecked() };
+        for (i, set) in fst.iter().enumerate() {
+            match sets.entry(*set) {
+                Entry::Vacant(entry) => {
+                    entry.insert((smallvec![i], 0));
+                }
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().0.push(i);
+                }
+            }
+        }
+
+        // Count number of appearances in other sets.
+        for slice in iter {
+            for set in slice.iter() {
+                match sets.entry(*set) {
+                    Entry::Vacant(_) => {}
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().1 += 1;
+                    }
+                }
+            }
+
+            // Update counts.
+            for (indices, count) in sets.values_mut() {
+                indices.truncate(*count);
+                *count = 0;
+            }
+        }
+
+        // Take elements from the first set, reuse some other set as a buffer.
+        let mut fst = vec.swap_remove(0);
+        let mut snd = vec.swap_remove(1);
+        snd.clear();
+
+        for (indices, _) in sets.into_values() {
+            for i in indices {
+                let set = std::mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+                snd.insert_mut(set);
+            }
+        }
+
+        Some(snd)
     }
 
     fn powerset(self) -> Self {

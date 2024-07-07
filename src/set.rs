@@ -349,8 +349,8 @@ impl SetTrait for Set {
         self.0.as_vec()
     }
 
-    fn clear(&mut self) {
-        self.0.clear();
+    unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset> {
+        self.0._as_vec_mut()
     }
 
     // -------------------- Constructions -------------------- //
@@ -374,8 +374,16 @@ impl SetTrait for Set {
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
     }
 
+    fn sum_vec(_vec: Vec<Self>) -> Self {
+        todo!()
+    }
+
     fn union_vec(vec: Vec<Self>) -> Self {
         Self::sum_vec(vec)
+    }
+
+    fn inter_vec(_vec: Vec<Self>) -> Option<Self> {
+        todo!()
     }
 
     fn powerset(self) -> Self {
@@ -535,7 +543,8 @@ impl Set {
 
 // -------------------- Constructions -------------------- //
 
-impl Set {/*
+impl Set {
+    /*
     /// Set union x ∪ y.
     #[must_use]
     pub fn union(self, other: Self) -> Self {
@@ -563,8 +572,6 @@ impl Set {/*
     pub fn big_inter_vec(vec: Vec<Self>) -> Self {
         Self(Mset::big_inter(cast_vec(vec)))
     }*/
-
-    
 
     /// Kuratowski pair (x, y).
     #[must_use]

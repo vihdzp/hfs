@@ -66,8 +66,19 @@ pub trait SetTrait:
     /// Note that internally, both kinds of set store [`Mset`].
     fn as_vec(&self) -> &Vec<Mset>;
 
+    /// **Internal method.**
+    ///
+    /// A mutable reference to the inner vector.
+    ///
+    /// Note that internally, both kinds of set store [`Mset`].
+    unsafe fn _as_vec_mut(&mut self) -> &mut Vec<Mset>;
+
     /// Removes all elements from the set.
-    fn clear(&mut self);
+    fn clear(&mut self) {
+        unsafe {
+            self._as_vec_mut().clear();
+        }
+    }
 
     /// Set cardinality.
     fn card(&self) -> usize {
@@ -77,6 +88,11 @@ pub trait SetTrait:
     /// Whether the set is empty.
     fn is_empty(&self) -> bool {
         self.as_slice().is_empty()
+    }
+
+    /// The capacity of the backing vector.
+    fn capacity(&self) -> usize {
+        self.as_vec().capacity()
     }
 
     /// Iterate over the elements of the set.
@@ -130,9 +146,7 @@ pub trait SetTrait:
     }
 
     /// Sum over a vector.
-    fn sum_vec(_vec: Vec<Self>) -> Self {
-        todo!()
-    }
+    fn sum_vec(vec: Vec<Self>) -> Self;
 
     /// Sum x + y.
     #[must_use]
@@ -166,67 +180,7 @@ pub trait SetTrait:
     /// Intersection over a vector.
     ///
     /// The intersection of an empty family would be the universal set, which can't be returned.
-    fn inter_vec(mut vec: Vec<Self>) -> Option<Self> {
-        // Check for trivial cases.
-        match vec.len() {
-            0 => return None,
-            1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
-            _ => {}
-        }
-        let levels =
-            unsafe { Levels::init_iter(vec.iter().map(AsRef::as_ref)).unwrap_unchecked() }.fill();
-
-        // We store the indices of the sets in the intersection.
-        let mut next = levels.ahu(1);
-        let mut iter = unsafe { Levels::child_iter(levels.first(), &mut next) };
-
-        // Each entry stores the indices where it's found within the first set, and a counter for
-        // how many times it's been seen in every other set.
-        let mut sets: BTreeMap<_, (SmallVec<_>, _)> = BTreeMap::new();
-        let fst = unsafe { iter.next().unwrap_unchecked() };
-        for (i, set) in fst.iter().enumerate() {
-            match sets.entry(*set) {
-                Entry::Vacant(entry) => {
-                    entry.insert((smallvec![i], 0));
-                }
-                Entry::Occupied(mut entry) => {
-                    entry.get_mut().0.push(i);
-                }
-            }
-        }
-
-        // Count number of appearances in other sets.
-        for slice in iter {
-            for set in slice.iter() {
-                match sets.entry(*set) {
-                    Entry::Vacant(_) => {}
-                    Entry::Occupied(mut entry) => {
-                        entry.get_mut().1 += 1;
-                    }
-                }
-            }
-
-            for (indices, count) in sets.values_mut() {
-                indices.truncate(*count);
-                *count = 0;
-            }
-        }
-
-        let (mut fst, mut snd) = unsafe {
-            (
-                std::mem::take(vec.get_unchecked_mut(0)),
-                std::mem::take(vec.get_unchecked_mut(1)),
-            )
-        };
-        for (indices, _) in sets.into_values() {
-            for i in indices {
-                let set = std::mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
-                snd.insert_mut(set);
-            }
-        }
-
-        Some(snd)
-    }
+    fn inter_vec( vec: Vec<Self>) -> Option<Self>;
 
     /// Intersection x ∩ y.
     fn inter(self, other: Self) -> Self {
