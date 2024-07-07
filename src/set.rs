@@ -62,31 +62,36 @@ impl FromStr for Set {
 
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
+/// The first buffer is an intermediary buffer for calculations. It must be empty when this function
+/// is called, but is emptied at the end of it.
+///
+/// The second buffer is cleared within the function. At its output, it contains the set of
+/// deduplicated keys with their indices in the original set.
+///
 /// ## Safety
 ///
 /// Both `set` and `keys` must have the same number of elements.
-unsafe fn dedup_by<T: Default>(
+unsafe fn dedup_by<T: Default, U: Ord + Copy>(
     set: &mut Vec<T>,
-    keys: &[usize],
-    buf1: &mut Vec<(usize, usize)>,
-    buf2: &mut Vec<T>,
+    keys: &[U],
+    buf: &mut Vec<T>,
+    buf_pairs: &mut Vec<(usize, U)>,
 ) {
     // Deduplicate set of key-value pairs.
-    buf1.clear();
-    buf1.extend(keys.iter().copied().enumerate());
-    buf1.sort_unstable_by_key(|(_, k)| *k);
-    buf1.dedup_by_key(|(_, k)| *k);
+    buf_pairs.clear();
+    buf_pairs.extend(keys.iter().copied().enumerate());
+    buf_pairs.sort_unstable_by_key(|(_, k)| *k);
+    buf_pairs.dedup_by_key(|(_, k)| *k);
 
     // Add ordered entries to secondary buffer.
-    buf2.clear();
-    for (i, _) in &*buf1 {
+    for (i, _) in &*buf_pairs {
         let el = std::mem::take(set.get_unchecked_mut(*i));
-        buf2.push(el);
+        buf.push(el);
     }
 
     // Now put them in place.
     set.clear();
-    set.append(buf2);
+    set.append(buf);
 }
 
 impl Mset {
@@ -94,34 +99,26 @@ impl Mset {
     #[must_use]
     pub fn into_set(mut self) -> Set {
         let levels = Levels::init(std::ptr::from_mut(&mut self)).fill_mut();
-        let mut cur = Vec::new();
-        let mut next = vec![0; levels.last().len()];
+        let mut buf = Vec::new();
+        let mut buf_pairs = Vec::new();
 
-        let mut buf1 = Vec::new();
-        let mut buf2 = Vec::new();
-        let mut sets = BTreeMap::new();
-        for level in levels.iter().rev().skip(1) {
-            sets.clear();
-            cur.clear();
-
+        levels.mod_ahu_gen(
+            1,
+            BTreeMap::new(),
             // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
             // still valid.
-            let iter = Levels::child_iter_gen(level, |s| unsafe { &*(s.cast_const()) }.card());
-            for (i, range) in iter.enumerate() {
+            |s| unsafe { &*(s.cast_const()) }.card(),
+            |sets, slice, &set| {
                 // Deduplicate the set.
                 unsafe {
-                    let set = &mut **level.get_unchecked(i);
-                    dedup_by(&mut set.0, next.get_unchecked(range), &mut buf1, &mut buf2);
+                    dedup_by(&mut (*set).0, slice, &mut buf, &mut buf_pairs);
                 };
 
-                cur.push(btree_index(
-                    &mut sets,
-                    buf1.iter().map(|(_, k)| *k).collect::<SmallVec<_>>(),
-                ));
-            }
-
-            std::mem::swap(&mut cur, &mut next);
-        }
+                let children: SmallVec<_> = buf_pairs.iter().map(|(_, k)| *k).collect();
+                Some(btree_index(sets, children))
+            },
+            BTreeMap::clear,
+        );
 
         Set(self)
     }
@@ -131,32 +128,24 @@ impl Mset {
     /// See also [`Self::into_set`].
     #[must_use]
     pub fn is_set(&self) -> bool {
-        let levels = Levels::init(self).fill();
-        let mut cur = Vec::new();
-        let mut next = vec![0; levels.last().len()];
+        Levels::init(self)
+            .fill()
+            .mod_ahu(
+                1,
+                BTreeMap::new(),
+                |sets, slice, _| {
+                    // Find duplicate elements.
+                    slice.sort_unstable();
+                    if has_consecutive(slice) {
+                        return None;
+                    }
 
-        let mut sets = BTreeMap::new();
-        for level in levels.iter().rev().skip(1) {
-            sets.clear();
-            cur.clear();
-
-            for slice in unsafe { Levels::child_iter_mut(level, &mut next) } {
-                // Find duplicate elements.
-                slice.sort_unstable();
-                if has_consecutive(slice) {
-                    return false;
-                }
-
-                cur.push(btree_index(
-                    &mut sets,
-                    slice.iter().copied().collect::<SmallVec<_>>(),
-                ));
-            }
-
-            std::mem::swap(&mut cur, &mut next);
-        }
-
-        true
+                    let children: SmallVec<_> = slice.iter().copied().collect();
+                    Some(btree_index(sets, children))
+                },
+                BTreeMap::clear,
+            )
+            .is_some()
     }
 
     /// Transmutes an [`Mset`] into a [`Set`], first checking the type invariants.
@@ -222,16 +211,35 @@ impl Mset {
     pub unsafe fn as_set_mut_unchecked(&mut self) -> &mut Set {
         self.as_set_mut_checked().unwrap_unchecked()
     }
+
+    /// Converts `Vec<Mset>` into `Vec<Set>`.
+    ///
+    /// ## Safety
+    ///
+    /// You must guarantee that the [`Mset`] satisfy the type invariants for [`Set`].
+    pub unsafe fn cast_vec(vec: Vec<Self>) -> Vec<Set> {
+        crate::transmute_vec(vec)
+    }
 }
 
 impl Set {
-    fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
-        unsafe { crate::transmute_vec(vec) }
+    /// Deduplicate a vector of [`Set`].
+    ///
+    /// This is optimized compared to calling [`Mset::into_set`] on the vector, as we don't need to
+    /// deduplicate any levels further down.
+    pub fn dedup(mut vec: Vec<Self>) -> Self {
+        let keys = Levels::init_iter(vec.iter().map(AsRef::as_ref))
+            .fill()
+            .ahu(2);
+
+        unsafe { dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new()) };
+        Self(Mset(Self::cast_vec(vec)))
     }
 
-    /*fn dedup(vec: Vec<Self>) -> Self {
-
-    }*/
+    /// Converts `Vec<Set>` into `Vec<Mset>`.
+    pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
+        unsafe { crate::transmute_vec(vec) }
+    }
 }
 
 // -------------------- Iterators -------------------- //
@@ -339,11 +347,11 @@ impl SetTrait for Set {
     }
 
     fn union(self, other: Self) -> Self {
-        self.0.union(other.0).into_set()
+        Self::dedup(unsafe { Mset::cast_vec((self.0.union(other.0)).0) })
     }
 
     fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
-        Mset::union_iter(iter.into_iter().map(Into::into)).into_set()
+        Self::dedup(unsafe { Mset::cast_vec(Mset::union_iter(iter.into_iter().map(Into::into)).0) })
     }
 
     fn powerset(self) -> Self {
@@ -365,7 +373,7 @@ impl SetTrait for Set {
     // -------------------- Relations -------------------- //
 
     unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool {
-        fst.subset_gen(
+        fst.both_ahu(
             snd,
             // Remove found sets, return if one isn't found.
             |sets, children| sets.remove(&children),
@@ -388,28 +396,49 @@ impl SetTrait for Set {
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
         // Empty sets are disjoint.
         let levels = Levels::init_iter(iter.into_iter().map(AsRef::as_ref)).fill();
-        if levels.level_len() <= 1 {
+        let elements;
+        if let Some(el) = levels.get(1) {
+            elements = el;
+        } else {
             return true;
         }
 
-        let elements = unsafe { levels.get(2).unwrap_unchecked() };
-        let mut mod_ahu = levels.mod_ahu(2);
-        let mut sets = BTreeSet::new();
+        let mut cur = Vec::new();
+        let mut next: Vec<usize> = Vec::new();
+        let mut sets = BTreeMap::new();
 
-        for slice in unsafe { Levels::child_iter_mut(elements, &mut mod_ahu.next) } {
-            slice.sort_unstable();
-            let children: SmallVec<_> = slice.iter().copied().collect();
-
-            // Find duplicate elements.
-            if !sets.insert(children) {
-                return false;
-            }
+        // Compute AHU encodings for all but the elements of the union.
+        for level in levels.iter().skip(2).rev() {
+            sets.clear();
+            unsafe {
+                Levels::step_ahu(level, &mut cur, &mut next, |slice, _| {
+                    slice.sort_unstable();
+                    let children = slice.iter().copied().collect::<SmallVec<_>>();
+                    Some(btree_index(&mut sets, children))
+                })
+            };
         }
 
-        true
+        // Compute the encodings for the union. Return whether we find anything twice.
+        let mut dummy: Vec<()> = Vec::new();
+        sets.clear();
+        unsafe {
+            Levels::step_ahu(elements, &mut dummy, &mut next, |slice, _| {
+                slice.sort_unstable();
+                let children = slice.iter().copied().collect::<SmallVec<_>>();
+
+                // The values don't matter, but we recycle our BTreeMap instead of creating a new
+                // BTreeSet.
+                if sets.insert(children, 0).is_some() {
+                    None
+                } else {
+                    Some(())
+                }
+            })
+        }
     }
 
-    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
         todo!()
     }
 }
@@ -511,7 +540,7 @@ impl Set {
         let elements = unsafe { levels.get(1).unwrap_unchecked() };
 
         // We store the indices of the sets in the intersection.
-        let mod_ahu = levels.mod_ahu(2);
+        let mod_ahu = levels.test_mod_ahu(2);
         let mut next = mod_ahu.next;
         let mut indices = mod_ahu.buffer;
 

@@ -207,7 +207,7 @@ impl SetTrait for Mset {
     // -------------------- Relations -------------------- //
 
     unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool {
-        fst.subset_gen(
+        fst.both_ahu(
             snd,
             // Decrement set count. Return if this reaches a negative.
             |sets, children| match sets.entry(children) {
@@ -339,7 +339,7 @@ impl Mset {
         let elements = unsafe { levels.get(1).unwrap_unchecked() };
 
         // We store the indices of the sets in the intersection.
-        let mod_ahu = levels.mod_ahu(2);
+        let mod_ahu = levels.test_mod_ahu(2);
         let mut next = mod_ahu.next;
         let mut indices = mod_ahu.buffer;
 
@@ -379,6 +379,11 @@ impl Mset {
 #[cfg(test)]
 mod mset {
     use super::*;
+
+    #[test]
+    fn basic() {
+        println!("{}", Mset::nat(3).pair(Mset::nat(3)));
+    }
 
     /// A multitude of general multisets for general-purpose testing.
     ///
