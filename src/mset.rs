@@ -157,6 +157,77 @@ impl SetTrait for Mset {
         Self::sum_iter(vec)
     }
 
+    fn union_vec(mut vec: Vec<Self>) -> Self {
+        // Check for trivial cases.
+        match vec.len() {
+            0 => return Self::empty(),
+            1 => return unsafe { vec.pop().unwrap_unchecked() },
+            _ => {}
+        }
+
+        let levels = unsafe { Levels::init_iter(&vec).unwrap_unchecked() }.fill();
+
+        let next = levels.ahu(1);
+        let mut iter = unsafe { Levels::child_iter(levels.first(), &next) }.enumerate();
+
+        // Each entry stores pointers to where it's found in `vec`, and a counter for how many times
+        // it's been seen in every other set.
+        //
+        // Pointers are not strictly necessary, but they're by far the most direct way to refer to
+        // an element of an element of a vector.
+        let mut sets = BTreeMap::new();
+        let (_, fst) = unsafe { iter.next().unwrap_unchecked() };
+        let ptr = unsafe { vec.get_unchecked(0).as_slice().as_ptr() };
+        for (i, set) in fst.iter().enumerate() {
+            let el_ptr = unsafe { ptr.add(i) };
+            match sets.entry(*set) {
+                Entry::Vacant(entry) => {
+                    entry.insert((smallvec![el_ptr], 0));
+                }
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().0.push(el_ptr);
+                }
+            }
+        }
+
+        // Count number of appearances in other sets.
+        for (i, slice) in iter {
+            let ptr = unsafe { vec.get_unchecked(i).as_slice().as_ptr() };
+            for (j, set) in slice.iter().enumerate() {
+                let el_ptr = unsafe { ptr.add(j) };
+                match sets.entry(*set) {
+                    Entry::Vacant(entry) => {
+                        entry.insert((smallvec![el_ptr], 1));
+                    }
+                    Entry::Occupied(mut entry) => {
+                        let (indices, count) = entry.get_mut();
+                        if indices.len() == *count {
+                            indices.push(el_ptr);
+                        }
+                        *count += 1;
+                    }
+                }
+            }
+
+            // Reset counts.
+            for (_, count) in sets.values_mut() {
+                *count = 0;
+            }
+        }
+
+        // Get all the sets we need.
+        // Safety: we do in have mutable access to the vector.
+        let mut union = Self::empty();
+        for (indices, _) in sets.into_values() {
+            for ptr in indices {
+                let set = mem::take(unsafe { &mut *(ptr.cast_mut()) });
+                union.insert_mut(set);
+            }
+        }
+
+        union
+    }
+
     fn inter_vec(mut vec: Vec<Self>) -> Option<Self> {
         // Check for trivial cases.
         match vec.len() {
@@ -211,7 +282,7 @@ impl SetTrait for Mset {
 
         for (indices, _) in sets.into_values() {
             for i in indices {
-                let set = std::mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+                let set = mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
                 snd.insert_mut(set);
             }
         }
@@ -364,28 +435,6 @@ mod mset {
         SUITE.iter().map(|&str| (str, str.parse().unwrap()))
     }
 
-    /// Normalize string for a set.
-    fn normalize(str: &str) -> String {
-        let set: Mset = str.parse().unwrap();
-        set.to_string()
-    }
-
-    /// Removes leading brackets from a string.
-    fn inner(str: &str) -> &str {
-        &str[1..(str.len() - 1)]
-    }
-
-    /// Verify round-trip conversion between set and string.
-    fn roundtrip(set: &Mset, str: &str) {
-        assert_eq!(set, &str.parse().unwrap());
-        assert_eq!(set.to_string(), str);
-    }
-
-    /// Normalize string, then call [`roundtrip`].
-    fn roundtrip_norm(set: &Mset, str: &str) {
-        roundtrip(set, &normalize(str))
-    }
-
     /// Test that our [`SUITE`] is well-formatted.
     #[test]
     fn test_suite() {
@@ -397,23 +446,21 @@ mod mset {
         }
 
         for str in SUITE {
-            assert_eq!(str, &normalize(str), "test suite must round-trip");
+            assert_eq!(str, &Mset::_normalize(str), "test suite must round-trip");
         }
-
-        let _ = suite();
     }
 
     /// Test [`Mset::empty`].
     #[test]
     fn empty() {
-        roundtrip(&Mset::empty(), "{}");
+        Mset::empty()._roundtrip("{}");
     }
 
     /// Test [`Mset::singleton`].
     #[test]
     fn singleton() {
         for (str, set) in suite() {
-            roundtrip(&set.singleton(), &format!("{{{str}}}"));
+            set.singleton()._roundtrip(&format!("{{{str}}}"));
         }
     }
 
@@ -422,10 +469,10 @@ mod mset {
     fn pair() {
         for (i, (str_1, set_1)) in suite().enumerate() {
             for (str_2, set_2) in suite().skip(i) {
-                roundtrip(
-                    &set_1.clone().pair(set_2.clone()),
-                    &format!("{{{str_1}, {str_2}}}"),
-                );
+                set_1
+                    .clone()
+                    .pair(set_2.clone())
+                    ._roundtrip(&format!("{{{str_1}, {str_2}}}"));
             }
         }
     }
@@ -481,23 +528,36 @@ mod mset {
             }
             str.push('}');
 
-            roundtrip(&Mset::nat(n), &str);
+            Mset::nat(n)._roundtrip(&str);
             outputs.push(str);
         }
     }
 
     /// Test [`Mset::union`].
     #[test]
-    fn union() {
+    fn sum() {
         // Remove initial parentheses.
-        let suite = || suite().map(|(str, set)| (inner(str), set));
+        let suite = || suite().map(|(str, set)| (&str[1..(str.len() - 1)], set));
 
         for (str_1, set_1) in suite() {
             for (str_2, set_2) in suite() {
-                roundtrip_norm(
-                    &set_1.clone().union(set_2.clone()),
-                    &format!("{{{str_1}, {str_2}}}"),
-                );
+                set_1
+                    .clone()
+                    .sum(set_2.clone())
+                    ._roundtrip(&Mset::_normalize(&format!("{{{str_1}, {str_2}}}")));
+            }
+        }
+    }
+
+    /// Test [`Mset::union`].
+    #[test]
+    fn union() {
+        for (_, set_1) in suite() {
+            for (_, set_2) in suite() {
+                let union = set_1.clone().inter(set_2.clone());
+                for set in [&set_1, &set_2] {
+                    assert!(union.subset(set), "{set} not a subset of {union}");
+                }
             }
         }
     }
@@ -508,9 +568,8 @@ mod mset {
         for (_, set_1) in suite() {
             for (_, set_2) in suite() {
                 let inter = set_1.clone().inter(set_2.clone());
-                for set in inter {
-                    assert!(set_1.contains(&set), "{set} not contained in {set_1}");
-                    assert!(set_2.contains(&set), "{set} not contained in {set_2}")
+                for set in [&set_1, &set_2] {
+                    assert!(inter.subset(set), "{inter} not a subset of {set}");
                 }
             }
         }

@@ -544,7 +544,7 @@ impl<T> Levels<T> {
             }
 
             level_fn(&mut sets);
-            std::mem::swap(&mut cur, &mut next);
+            mem::swap(&mut cur, &mut next);
         }
 
         Some(next)
@@ -657,7 +657,7 @@ impl<'a> Levels<&'a Mset> {
                     children.sort_unstable();
                     Some(snd_fun(&mut sets, children))
                 });
-                std::mem::swap(&mut cur, &mut snd_next);
+                mem::swap(&mut cur, &mut snd_next);
 
                 // Process first set.
                 let res = Levels::step_ahu(fst_level, &mut cur, &mut fst_next, |slice, _| {
@@ -668,7 +668,7 @@ impl<'a> Levels<&'a Mset> {
                 if !res {
                     return false;
                 }
-                std::mem::swap(&mut cur, &mut fst_next);
+                mem::swap(&mut cur, &mut fst_next);
             }
         }
 
@@ -718,7 +718,7 @@ impl Ahu {
                 } else {
                     return Some(BitVec::new());
                 }
-                let mut buf: BitVec<_, _> = std::mem::take(fst);
+                let mut buf: BitVec<_, _> = mem::take(fst);
 
                 // Closing parenthesis.
                 buf.push(false);
@@ -770,62 +770,5 @@ impl Display for Ahu {
         }
 
         f.write_char('}')
-    }
-}
-
-// -------------------- Set algorithms -------------------- //
-
-/// The return value for [`Levels::mod_ahu`].
-#[derive(Clone, Default, Debug)]
-pub struct ModAhu {
-    /// Unique identifiers for the elements at the specified level.
-    ///
-    /// The name refers to the fact that you most often use this to work with the sets one step up,
-    /// thus making this the next level of sets.
-    pub next: Vec<usize>,
-    /// A reusable buffer, empty when returned.
-    pub buffer: Vec<usize>,
-    /// The structure storing the sets and their indices.
-    ///
-    /// This won't be cleared by default, so you can find e.g. the largest index in `next`.
-    pub sets: BTreeMap<SmallVec<usize>, usize>,
-}
-
-impl<'a> Levels<&'a Mset> {
-    /// Modified [`Ahu`] algorithm. Computes a list of integers representing the distinct elements
-    /// of the elements in the set at a certain level.
-    ///
-    /// As a small optimization, the second vector in the return value is an empty buffer that can
-    /// be reused.
-    #[must_use]
-    pub fn test_mod_ahu(&self, r: usize) -> ModAhu {
-        let mut cur = Vec::new();
-        if self.level_len() <= r {
-            return ModAhu::default();
-        }
-        let mut next = vec![0; self.last().len()];
-
-        let mut sets = BTreeMap::new();
-        for level in self.iter().skip(r).rev().skip(1) {
-            sets.clear();
-            cur.clear();
-
-            for slice in unsafe { Levels::child_iter_mut(level, &mut next) } {
-                slice.sort_unstable();
-                cur.push(btree_index(
-                    &mut sets,
-                    slice.iter().copied().collect::<SmallVec<_>>(),
-                ));
-            }
-
-            std::mem::swap(&mut cur, &mut next);
-        }
-
-        cur.clear();
-        ModAhu {
-            next,
-            buffer: cur,
-            sets,
-        }
     }
 }

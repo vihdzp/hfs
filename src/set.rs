@@ -67,10 +67,10 @@ impl FromStr for Set {
 /// The types `T` and `U` must be transmutable into each other. In particular, they must have the
 /// same size and alignment.
 unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
-    assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<U>());
-    assert_eq!(std::mem::align_of::<T>(), std::mem::align_of::<U>());
+    assert_eq!(mem::size_of::<T>(), mem::size_of::<U>());
+    assert_eq!(mem::align_of::<T>(), mem::align_of::<U>());
 
-    let mut vec = std::mem::ManuallyDrop::new(vec);
+    let mut vec = mem::ManuallyDrop::new(vec);
     unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
 }
 
@@ -99,7 +99,7 @@ unsafe fn dedup_by<T: Default, U: Ord + Copy>(
 
     // Add ordered entries to secondary buffer.
     for (i, _) in &*buf_pairs {
-        let el = std::mem::take(set.get_unchecked_mut(*i));
+        let el = mem::take(set.get_unchecked_mut(*i));
         buf.push(el);
     }
 
@@ -238,26 +238,6 @@ impl Mset {
 }
 
 impl Set {
-    /// Deduplicate a vector of [`Set`].
-    ///
-    /// This is optimized compared to calling [`Mset::into_set`] on the vector, as we don't need to
-    /// deduplicate any levels further down.
-    pub fn dedup(mut vec: Vec<Self>) -> Self {
-        let levels;
-        if let Some(lev) = Levels::init_iter(vec.iter().map(AsRef::as_ref)) {
-            levels = lev;
-        } else {
-            return Self::empty();
-        }
-
-        unsafe {
-            let keys = levels.fill().ahu(1);
-            dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
-        }
-
-        Self(Mset(Self::cast_vec(vec)))
-    }
-
     /// Converts `Vec<Set>` into `Vec<Mset>`.
     #[must_use]
     pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
@@ -374,8 +354,20 @@ impl SetTrait for Set {
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
     }
 
-    fn sum_vec(_vec: Vec<Self>) -> Self {
-        todo!()
+    fn sum_vec(mut vec: Vec<Self>) -> Self {
+        let levels;
+        if let Some(lev) = Levels::init_iter(vec.iter().map(AsRef::as_ref)) {
+            levels = lev;
+        } else {
+            return Self::empty();
+        }
+
+        unsafe {
+            let keys = levels.fill().ahu(1);
+            dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
+        }
+
+        Self(Mset(Self::cast_vec(vec)))
     }
 
     fn union_vec(vec: Vec<Self>) -> Self {
@@ -401,7 +393,7 @@ impl SetTrait for Set {
         let fst = unsafe { iter.next().unwrap_unchecked() };
         for (i, set) in fst.iter().enumerate() {
             if sets.insert(*set, (i, false)).is_some() {
-                unsafe { std::hint::unreachable_unchecked() }
+                unsafe { hint::unreachable_unchecked() }
             }
         }
 
@@ -430,7 +422,7 @@ impl SetTrait for Set {
         snd.clear();
 
         for (i, _) in sets.into_values() {
-            let set = std::mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+            let set = mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
             snd.insert_mut(set);
         }
 
@@ -465,7 +457,7 @@ impl SetTrait for Set {
                 let len = sets.len();
                 // Very cheeky and probably unhelpful use of unsafe code.
                 if sets.insert(children, len).is_some() {
-                    unsafe { std::hint::unreachable_unchecked() }
+                    unsafe { hint::unreachable_unchecked() }
                 }
                 len
             },
@@ -504,7 +496,7 @@ impl SetTrait for Set {
                 });
             }
 
-            std::mem::swap(&mut cur, &mut next);
+            mem::swap(&mut cur, &mut next);
         }
 
         // Compute the encodings for the union. Return whether we find anything twice.
@@ -594,46 +586,16 @@ impl Set {
 
 // -------------------- Constructions -------------------- //
 
-/*
 impl Set {
-    /*
-    /// Set union x ∪ y.
-    #[must_use]
-    pub fn union(self, other: Self) -> Self {
-        (self.0.union(other.0)).into_set()
-    }
-
-    /// Set union ∪x.
-    #[must_use]
-    pub fn big_union(self) -> Self {
-        self.0.big_union().into_set()
-    }
-
-    /// Set union ∪x.
-    pub fn big_union_vec(vec: Vec<Self>) -> Self {
-        let union: Vec<Mset> = vec.into_iter().flatten().map(Into::into).collect();
-        Mset(union).into_set()
-    }*/
-
-    /*  /// Set intersection ∩x.
-    pub fn big_inter(self) -> Option<Self> {
-        Self(self.0.big_inter())
-    }
-
-    /// Set intersection ∩x.
-    pub fn big_inter_vec(vec: Vec<Self>) -> Self {
-        Self(Mset::big_inter(cast_vec(vec)))
-    }*/
-
     /// Kuratowski pair (x, y).
     #[must_use]
-    pub fn k_pair(self, other: Self) -> Self {
+    pub fn kpair(self, other: Self) -> Self {
         self.clone().singleton().pair(self.pair(other))
     }
 
     /// Decomposes a Kuratowski pair.
     #[must_use]
-    pub fn k_split(&self) -> Option<(&Self, &Self)> {
+    pub fn ksplit(&self) -> Option<(&Self, &Self)> {
         match self.as_slice() {
             [set] => match set.as_slice() {
                 [a] => Some((a, a)),
@@ -654,8 +616,35 @@ impl Set {
             _ => None,
         }
     }
+
+    /// Decomposes a Kuratowski pair.
+    #[must_use]
+    pub fn into_ksplit(mut self) -> Option<(Self, Self)> {
+        unsafe {
+            match self.as_slice_mut() {
+                [set] => match set.as_slice_mut() {
+                    [a] => Some((a.clone(), mem::take(a))),
+                    _ => None,
+                },
+                [fst, snd] => match (fst.as_slice_mut(), snd.as_slice_mut()) {
+                    ([a], [b, c]) | ([b, c], [a]) => {
+                        if a == b {
+                            Some((mem::take(a), mem::take(c)))
+                        } else if a == c {
+                            Some((mem::take(a), mem::take(b)))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+    }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;

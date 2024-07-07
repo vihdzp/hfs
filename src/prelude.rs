@@ -20,5 +20,6 @@ pub(crate) use std::{
     cmp::Ordering,
     collections::{btree_map::Entry, BTreeMap},
     fmt::{Debug, Display, Formatter, Result as FmtResult, Write},
+    hint, mem,
     str::FromStr,
 };

@@ -4,6 +4,7 @@
 #![warn(missing_docs)]
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::missing_docs_in_private_items)]
+//#![warn(clippy::undocumented_unsafe_blocks)]
 
 pub mod mset;
 pub mod prelude;
@@ -47,6 +48,7 @@ pub trait SetTrait:
     + Default
     + Display
     + Eq
+    + FromStr<Err = SetError>
     + Into<Vec<Self>>
     + IntoIterator<Item = Self>
     + PartialOrd
@@ -77,9 +79,8 @@ pub trait SetTrait:
 
     /// Removes all elements from the set.
     fn clear(&mut self) {
-        unsafe {
-            self._as_vec_mut().clear();
-        }
+        // Safety: The empty set is valid for both types.
+        unsafe { self._as_vec_mut() }.clear();
     }
 
     /// Set cardinality.
@@ -148,24 +149,30 @@ pub trait SetTrait:
     }
 
     /// Sum over a vector.
+    ///
+    /// See [`SetTrait::sum`].
     fn sum_vec(vec: Vec<Self>) -> Self;
 
     /// Sum x + y.
+    ///
+    /// - The sum of two multisets is the multiset created by directly appending the elements of
+    ///   both.
+    /// - The sum of two sets coincides with their union.
     #[must_use]
     fn sum(self, other: Self) -> Self {
         Self::sum_vec(vec![self, other])
     }
 
     /// Sum Σx.
+    ///
+    /// See [`SetTrait::sum`].
     #[must_use]
     fn big_sum(self) -> Self {
         Self::sum_vec(self.into())
     }
 
     /// Union over a vector.
-    fn union_vec(_vec: Vec<Self>) -> Self {
-        todo!()
-    }
+    fn union_vec(vec: Vec<Self>) -> Self;
 
     /// Union x ∪ y.
     #[must_use]
@@ -187,6 +194,7 @@ pub trait SetTrait:
     /// Intersection x ∩ y.
     #[must_use]
     fn inter(self, other: Self) -> Self {
+        // Safety: 2 != 0.
         unsafe { Self::inter_vec(vec![self, other]).unwrap_unchecked() }
     }
 
@@ -237,6 +245,7 @@ pub trait SetTrait:
 
     /// Membership relation ∈.
     fn contains(&self, other: &Self) -> bool {
+        // Safety: this buffer is only used to initialize the first set in `self`.
         let mut fst = unsafe { Levels::empty() };
         let snd = Levels::init(other.as_ref()).fill();
         let mut buf = Vec::new();
@@ -255,6 +264,7 @@ pub trait SetTrait:
                 }
             }
 
+            // Safety: both `fst` and `snd` are valid for `Levels<&Self>`.
             fst.level_len() == snd.level_len() && unsafe { Self::_levels_subset(&fst, &snd) }
         })
     }
@@ -277,6 +287,25 @@ pub trait SetTrait:
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool
     where
         Self: 'a;
+
+    // -------------------- Internals -------------------- //
+
+    /// **Internal method.**
+    ///
+    ///  Normalize string for a set.
+    #[must_use]
+    fn _normalize(str: &str) -> String {
+        let set: Self = str.parse().unwrap();
+        set.to_string()
+    }
+
+    /// **Internal method.**
+    ///
+    /// Verify round-trip conversion between a set and a string.
+    fn _roundtrip(&self, str: &str) {
+        assert_eq!(self, &str.parse().unwrap());
+        assert_eq!(self.to_string(), str);
+    }
 }
 
 /// Implements [`PartialOrd`] for [`SetTrait`].
