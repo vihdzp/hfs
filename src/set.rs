@@ -32,7 +32,7 @@ impl From<Set> for Mset {
 
 impl From<Set> for Vec<Set> {
     fn from(set: Set) -> Self {
-        unsafe { crate::transmute_vec(set.0 .0) }
+        unsafe { Mset::cast_vec(set.0 .0) }
     }
 }
 
@@ -59,6 +59,20 @@ impl FromStr for Set {
 }
 
 // -------------------- Casting -------------------- //
+
+/// Transmute a vector of one type into a vector of another type.
+///
+/// ## Safety
+///
+/// The types `T` and `U` must be transmutable into each other. In particular, they must have the
+/// same size and alignment.
+unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
+    assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<U>());
+    assert_eq!(std::mem::align_of::<T>(), std::mem::align_of::<U>());
+
+    let mut vec = std::mem::ManuallyDrop::new(vec);
+    unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
+}
 
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
@@ -219,7 +233,7 @@ impl Mset {
     /// You must guarantee that the [`Mset`] satisfy the type invariants for [`Set`].
     #[must_use]
     pub unsafe fn cast_vec(vec: Vec<Self>) -> Vec<Set> {
-        crate::transmute_vec(vec)
+        transmute_vec(vec)
     }
 }
 
@@ -229,18 +243,25 @@ impl Set {
     /// This is optimized compared to calling [`Mset::into_set`] on the vector, as we don't need to
     /// deduplicate any levels further down.
     pub fn dedup(mut vec: Vec<Self>) -> Self {
-        let keys = Levels::init_iter(vec.iter().map(AsRef::as_ref))
-            .fill()
-            .ahu(2);
+        let levels;
+        if let Some(lev) = Levels::init_iter(vec.iter().map(AsRef::as_ref)) {
+            levels = lev;
+        } else {
+            return Self::empty();
+        }
 
-        unsafe { dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new()) };
+        unsafe {
+            let keys = levels.fill().ahu(1);
+            dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
+        }
+
         Self(Mset(Self::cast_vec(vec)))
     }
 
     /// Converts `Vec<Set>` into `Vec<Mset>`.
     #[must_use]
     pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
-        unsafe { crate::transmute_vec(vec) }
+        unsafe { transmute_vec(vec) }
     }
 }
 
@@ -319,6 +340,11 @@ impl SetTrait for Set {
         unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
     }
 
+    unsafe fn _as_slice_mut(&mut self) -> &mut [Self] {
+        let slice = self.0.as_slice_mut();
+        unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
+    }
+
     fn as_vec(&self) -> &Vec<Mset> {
         self.0.as_vec()
     }
@@ -348,12 +374,8 @@ impl SetTrait for Set {
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
     }
 
-    fn union(self, other: Self) -> Self {
-        Self::dedup(unsafe { Mset::cast_vec((self.0.union(other.0)).0) })
-    }
-
-    fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
-        Self::dedup(unsafe { Mset::cast_vec(Mset::union_iter(iter.into_iter().map(Into::into)).0) })
+    fn union_vec(vec: Vec<Self>) -> Self {
+        Self::sum_vec(vec)
     }
 
     fn powerset(self) -> Self {
@@ -391,13 +413,16 @@ impl SetTrait for Set {
         )
     }
 
-    fn disjoint(&self, other: &Self) -> bool {
-        Self::disjoint_pairwise([self, other])
-    }
-
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        // Empty families are disjoint.
+        let levels;
+        if let Some(lev) = Levels::init_iter(iter.into_iter().map(AsRef::as_ref)) {
+            levels = lev.fill();
+        } else {
+            return true;
+        }
+
         // Empty sets are disjoint.
-        let levels = Levels::init_iter(iter.into_iter().map(AsRef::as_ref)).fill();
         let elements;
         if let Some(el) = levels.get(1) {
             elements = el;
@@ -406,7 +431,7 @@ impl SetTrait for Set {
         }
 
         let mut cur = Vec::new();
-        let mut next: Vec<usize> = Vec::new();
+        let mut next = Vec::new();
         let mut sets = BTreeMap::new();
 
         // Compute AHU encodings for all but the elements of the union.
@@ -417,8 +442,10 @@ impl SetTrait for Set {
                     slice.sort_unstable();
                     let children = slice.iter().copied().collect::<SmallVec<_>>();
                     Some(btree_index(&mut sets, children))
-                })
-            };
+                });
+            }
+
+            std::mem::swap(&mut cur, &mut next);
         }
 
         // Compute the encodings for the union. Return whether we find anything twice.
@@ -459,8 +486,7 @@ impl Set {
     /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
     /// elements equal.
     pub unsafe fn as_slice_mut(&mut self) -> &mut [Self] {
-        let slice = self.0.as_slice_mut();
-        unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
+        self._as_slice_mut()
     }
 
     /// A mutable reference to the inner vector.
@@ -509,7 +535,7 @@ impl Set {
 
 // -------------------- Constructions -------------------- //
 
-impl Set {
+impl Set {/*
     /// Set union x ∪ y.
     #[must_use]
     pub fn union(self, other: Self) -> Self {
@@ -526,56 +552,7 @@ impl Set {
     pub fn big_union_vec(vec: Vec<Self>) -> Self {
         let union: Vec<Mset> = vec.into_iter().flatten().map(Into::into).collect();
         Mset(union).into_set()
-    }
-
-    /// Set intersection x ∩ y.
-    ///
-    /// This is a modified version of [`Mset::inter`].
-    #[must_use]
-    pub fn inter(mut self, mut other: Self) -> Self {
-        let idx = self.card();
-        if idx == 0 || other.is_empty() {
-            return Self::empty();
-        }
-
-        let levels = Levels::init_iter([self.mset(), other.mset()]).fill();
-        let elements = unsafe { levels.get(1).unwrap_unchecked() };
-
-        // We store the indices of the sets in the intersection.
-        let mod_ahu = levels.test_mod_ahu(2);
-        let mut next = mod_ahu.next;
-        let mut indices = mod_ahu.buffer;
-
-        // Each entry stores the index where it's found within the first set.
-        let mut sets = BTreeMap::new();
-        for (i, slice) in unsafe { Levels::child_iter_mut(elements, &mut next) }.enumerate() {
-            slice.sort_unstable();
-            let children: SmallVec<_> = slice.iter().copied().collect();
-
-            match sets.entry(children) {
-                Entry::Vacant(entry) => {
-                    if i < idx {
-                        entry.insert(i);
-                    }
-                }
-                Entry::Occupied(entry) => {
-                    debug_assert!(
-                        i >= idx,
-                        "there can't be repeated elements within a single set"
-                    );
-                    indices.push(entry.remove());
-                }
-            }
-        }
-
-        other.clear();
-        for i in indices {
-            let set = std::mem::take(unsafe { self.as_slice_mut().get_unchecked_mut(i) });
-            other.0.insert_mut(set.0);
-        }
-
-        other
-    }
+    }*/
 
     /*  /// Set intersection ∩x.
     pub fn big_inter(self) -> Option<Self> {
@@ -587,35 +564,7 @@ impl Set {
         Self(Mset::big_inter(cast_vec(vec)))
     }*/
 
-    /// Powerset 2^x.
-    #[must_use]
-    pub fn powerset(self) -> Self {
-        Self(self.0.powerset())
-    }
-
-    /// The von Neumann rank of the set.
-    #[must_use]
-    pub fn rank(&self) -> usize {
-        self.0.rank()
-    }
-
-    /// The von Neumann set encoding for n.
-    #[must_use]
-    pub fn nat(n: usize) -> Self {
-        Self(Mset::nat(n))
-    }
-
-    /// The Zermelo set encoding for n.
-    #[must_use]
-    pub fn zermelo(n: usize) -> Self {
-        Self(Mset::zermelo(n))
-    }
-
-    /// The von Neumann hierarchy.
-    #[must_use]
-    pub fn neumann(n: usize) -> Self {
-        Self(Mset::neumann(n))
-    }
+    
 
     /// Kuratowski pair (x, y).
     #[must_use]

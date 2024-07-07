@@ -111,6 +111,10 @@ impl SetTrait for Mset {
         &self.0
     }
 
+    unsafe fn _as_slice_mut(&mut self) -> &mut [Self] {
+        &mut self.0
+    }
+
     fn as_vec(&self) -> &Vec<Mset> {
         &self.0
     }
@@ -142,15 +146,6 @@ impl SetTrait for Mset {
                 self.0.swap_remove(i);
             }
         }
-    }
-
-    fn union(mut self, mut other: Self) -> Self {
-        self.0.append(&mut other.0);
-        self
-    }
-
-    fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
-        iter.into_iter().flatten().collect()
     }
 
     fn powerset(self) -> Self {
@@ -241,10 +236,6 @@ impl SetTrait for Mset {
         )
     }
 
-    fn disjoint(&self, _other: &Self) -> bool {
-        todo!()
-    }
-
     fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
         todo!()
     }
@@ -272,106 +263,9 @@ impl Mset {
         self.0.iter_mut()
     }
 
-    /*
-    /// Intersection x ∩ y.
-    pub fn disjoint(&self, other: &Self) -> bool {
-        // Check for empty multiset.
-        let idx = self.card();
-        if idx == 0 || other.is_empty() {
-            return true;
-        }
-
-        let mut pair = self.pair(other);
-        let levels = Levels::init(&pair).fill();
-        let elements = unsafe { levels.get(2).unwrap_unchecked() };
-
-        // We store the indices of the sets in the intersection.
-        let (mut next, mut indices) = levels.mod_ahu(3);
-
-        let mut sets: BTreeMap<_, SmallVec<_>> = BTreeMap::new();
-        for (i, range) in Levels::child_iter(elements).enumerate() {
-            let slice = unsafe {
-                let slice = next.get_unchecked_mut(range);
-                slice.sort_unstable();
-                slice as &[_]
-            };
-
-            // Each entry stores the indices where it's found within the first multiset.
-            let children: SmallVec<_> = slice.iter().copied().collect();
-            match sets.entry(children) {
-                Entry::Vacant(entry) => {
-                    if i < idx {
-                        entry.insert(smallvec![i]);
-                    }
-                }
-                Entry::Occupied(mut entry) => {
-                    if i < idx {
-                        entry.get_mut().push(i);
-                    } else if let Some(j) = entry.get_mut().pop() {
-                        indices.push(j);
-                    }
-                }
-            }
-        }
-
-        let mut snd = unsafe { pair.0.pop().unwrap_unchecked() };
-        let mut fst = unsafe { pair.0.pop().unwrap_unchecked() };
-        snd.clear();
-
-        for i in indices {
-            let set = std::mem::take(unsafe { fst.0.get_unchecked_mut(i) });
-            snd.insert_mut(set);
-        }
-
-        snd
-    } */
-
-    /// Intersection x ∩ y.
-    #[must_use]
-    pub fn inter(mut self, mut other: Self) -> Self {
-        // Check for empty multisets.
-        let idx = self.card();
-        if idx == 0 || other.is_empty() {
-            return Self::empty();
-        }
-
-        let levels = Levels::init_iter([&self, &other]).fill();
-        let elements = unsafe { levels.get(1).unwrap_unchecked() };
-
-        // We store the indices of the sets in the intersection.
-        let mod_ahu = levels.test_mod_ahu(2);
-        let mut next = mod_ahu.next;
-        let mut indices = mod_ahu.buffer;
-
-        // Each entry stores the indices where it's found within the first multiset.
-        let mut sets: BTreeMap<_, SmallVec<_>> = BTreeMap::new();
-        for (i, slice) in unsafe { Levels::child_iter_mut(elements, &mut next) }.enumerate() {
-            slice.sort_unstable();
-            let children: SmallVec<_> = slice.iter().copied().collect();
-
-            match sets.entry(children) {
-                Entry::Vacant(entry) => {
-                    if i < idx {
-                        entry.insert(smallvec![i]);
-                    }
-                }
-                Entry::Occupied(mut entry) => {
-                    if i < idx {
-                        entry.get_mut().push(i);
-                    } else if let Some(j) = entry.get_mut().pop() {
-                        indices.push(j);
-                    }
-                }
-            }
-        }
-
-        other.clear();
-        for i in indices {
-            let set = std::mem::take(unsafe { self.0.get_unchecked_mut(i) });
-            other.insert_mut(set);
-        }
-
-        other
+    /// Sum over an iterator.
+    pub fn sum_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
+        iter.into_iter().flatten().collect()
     }
 }
 

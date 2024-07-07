@@ -91,10 +91,17 @@ impl<T> Levels<T> {
     }
 
     /// Initializes the first level from a list of sets.
-    pub fn init_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self {
-            indices: smallvec![0],
-            data: iter.into_iter().collect(),
+    ///
+    /// Returns `None` if the iterator does not output anything.
+    pub fn init_iter<I: IntoIterator<Item = T>>(iter: I) -> Option<Self> {
+        let data: Vec<_> = iter.into_iter().collect();
+        if data.is_empty() {
+            None
+        } else {
+            Some(Self {
+                indices: smallvec![0],
+                data,
+            })
         }
     }
 
@@ -155,6 +162,17 @@ impl<T> Levels<T> {
     pub fn last_mut(&mut self) -> &mut [T] {
         let idx = self.last_idx();
         unsafe { self.data.get_unchecked_mut(idx..) }
+    }
+
+    /// Returns the first level.
+    #[must_use]
+    pub fn first(&self) -> &[T] {
+        unsafe { self.get(0).unwrap_unchecked() }
+    }
+
+    /// Returns a mutable reference to the first level.
+    pub fn first_mut(&mut self) -> &mut [T] {
+        unsafe { self.get_mut(0).unwrap_unchecked() }
     }
 }
 
@@ -515,11 +533,12 @@ impl<T> Levels<T> {
         let mut next = Vec::new();
 
         for level in self.iter().skip(level).rev() {
-            if unsafe {
-                !Self::step_ahu_gen(level, &mut cur, &mut next, &mut card, |i, j| {
+            let res = unsafe {
+                Self::step_ahu_gen(level, &mut cur, &mut next, &mut card, |i, j| {
                     child_fn(&mut sets, i, j)
                 })
-            } {
+            };
+            if !res {
                 return None;
             }
 
@@ -620,9 +639,8 @@ impl<'a> Levels<&'a Mset> {
             "this check should have been performed beforehand"
         );
 
-        let mut fst_cur = Vec::new();
+        let mut cur = Vec::new();
         let mut fst_next = Vec::new();
-        let mut snd_cur = Vec::new();
         let mut snd_next = Vec::new();
 
         let mut sets = BTreeMap::new();
@@ -633,14 +651,15 @@ impl<'a> Levels<&'a Mset> {
 
             unsafe {
                 // Processs second set.
-                Levels::step_ahu(snd_level, &mut snd_cur, &mut snd_next, |slice, _| {
+                Levels::step_ahu(snd_level, &mut cur, &mut snd_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();
                     Some(snd_fun(&mut sets, children))
                 });
+                std::mem::swap(&mut cur, &mut fst_next);
 
                 // Process first set.
-                let res = Levels::step_ahu(fst_level, &mut fst_cur, &mut fst_next, |slice, _| {
+                let res = Levels::step_ahu(fst_level, &mut cur, &mut fst_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();
                     fst_fun(&mut sets, children)
@@ -648,14 +667,13 @@ impl<'a> Levels<&'a Mset> {
                 if !res {
                     return false;
                 }
+                std::mem::swap(&mut cur, &mut snd_next);
             }
         }
 
         true
     }
 }
-
-// -------------------- AHU algorithm -------------------- //
 
 /// The [Aho–Hopcroft–Ullman](https://www.baeldung.com/cs/isomorphic-trees) (AHU) encoding for an
 /// [`Mset`]. It is unique up to multiset equality.
@@ -671,7 +689,7 @@ impl<'a> Levels<&'a Mset> {
 /// assigned a single integer instead of the full string. This "modified" AHU encoding does not
 /// determine multisets uniquely, but it can uniquely determine multisets within a single multiset.
 ///
-/// See [`Levels::ahu`] for an implementation.
+/// See [`Levels::mod_ahu`] for an implementation.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, IntoIterator)]
 pub struct Ahu(#[into_iterator(owned, ref)] BitVec);
 

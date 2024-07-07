@@ -27,21 +27,6 @@ macro_rules! smallvec {
     });
 }
 
-/// Transmute a vector of one type into a vector of another type.
-///
-/// ## Safety
-///
-/// The types `T` and `U` must be transmutable into each other. In particular, they must have the
-/// same size and alignment.
-#[allow(dead_code)]
-unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
-    assert_eq!(std::mem::size_of::<T>(), std::mem::size_of::<U>());
-    assert_eq!(std::mem::align_of::<T>(), std::mem::align_of::<U>());
-
-    let mut vec = std::mem::ManuallyDrop::new(vec);
-    unsafe { Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity()) }
-}
-
 /// Whether a slice has consecutive elements.
 fn has_consecutive<T: PartialEq>(slice: &[T]) -> bool {
     (1..slice.len()).any(|i| slice[i - 1] == slice[i])
@@ -70,6 +55,11 @@ pub trait SetTrait:
 
     /// The set as a slice.
     fn as_slice(&self) -> &[Self];
+
+    /// **Internal method.**
+    ///
+    /// The set as a mutable slice.
+    unsafe fn _as_slice_mut(&mut self) -> &mut [Self];
 
     /// A reference to the inner vector.
     ///
@@ -113,10 +103,10 @@ pub trait SetTrait:
     #[must_use]
     fn singleton(self) -> Self;
 
-    /// In-place set insertion x ∪ {y}.
+    /// In-place set insertion x + {y}.
     fn insert_mut(&mut self, set: Self);
 
-    /// Set insertion x ∪ {y}.
+    /// Set insertion x + {y}.
     #[must_use]
     fn insert(mut self, set: Self) -> Self {
         self.insert_mut(set);
@@ -139,17 +129,116 @@ pub trait SetTrait:
         self.singleton().insert(other)
     }
 
+    /// Sum over a vector.
+    fn sum_vec(_vec: Vec<Self>) -> Self {
+        todo!()
+    }
+
+    /// Sum x + y.
+    #[must_use]
+    fn sum(self, other: Self) -> Self {
+        Self::sum_vec(vec![self, other])
+    }
+
+    /// Sum Σx.
+    #[must_use]
+    fn big_sum(self) -> Self {
+        Self::sum_vec(self.into())
+    }
+
+    /// Union over a vector.
+    fn union_vec(_vec: Vec<Self>) -> Self {
+        todo!()
+    }
+
     /// Union x ∪ y.
     #[must_use]
-    fn union(self, other: Self) -> Self;
-
-    /// Union over an iterator.
-    fn union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self;
+    fn union(self, other: Self) -> Self {
+        Self::union_vec(vec![self, other])
+    }
 
     /// Union ∪x.
     #[must_use]
     fn big_union(self) -> Self {
-        Self::union_iter(self)
+        Self::union_vec(self.into())
+    }
+
+    /// Intersection over a vector.
+    ///
+    /// The intersection of an empty family would be the universal set, which can't be returned.
+    fn inter_vec(mut vec: Vec<Self>) -> Option<Self> {
+        // Check for trivial cases.
+        match vec.len() {
+            0 => return None,
+            1 => return Some(unsafe { vec.pop().unwrap_unchecked() }),
+            _ => {}
+        }
+        let levels =
+            unsafe { Levels::init_iter(vec.iter().map(AsRef::as_ref)).unwrap_unchecked() }.fill();
+
+        // We store the indices of the sets in the intersection.
+        let mut next = levels.ahu(1);
+        let mut iter = unsafe { Levels::child_iter(levels.first(), &mut next) };
+
+        // Each entry stores the indices where it's found within the first set, and a counter for
+        // how many times it's been seen in every other set.
+        let mut sets: BTreeMap<_, (SmallVec<_>, _)> = BTreeMap::new();
+        let fst = unsafe { iter.next().unwrap_unchecked() };
+        for (i, set) in fst.iter().enumerate() {
+            match sets.entry(*set) {
+                Entry::Vacant(entry) => {
+                    entry.insert((smallvec![i], 0));
+                }
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().0.push(i);
+                }
+            }
+        }
+
+        // Count number of appearances in other sets.
+        for slice in iter {
+            for set in slice.iter() {
+                match sets.entry(*set) {
+                    Entry::Vacant(_) => {}
+                    Entry::Occupied(mut entry) => {
+                        entry.get_mut().1 += 1;
+                    }
+                }
+            }
+
+            for (indices, count) in sets.values_mut() {
+                indices.truncate(*count);
+                *count = 0;
+            }
+        }
+
+        let (mut fst, mut snd) = unsafe {
+            (
+                std::mem::take(vec.get_unchecked_mut(0)),
+                std::mem::take(vec.get_unchecked_mut(1)),
+            )
+        };
+        for (indices, _) in sets.into_values() {
+            for i in indices {
+                let set = std::mem::take(unsafe { fst._as_slice_mut().get_unchecked_mut(i) });
+                snd.insert_mut(set);
+            }
+        }
+
+        Some(snd)
+    }
+
+    /// Intersection x ∩ y.
+    fn inter(self, other: Self) -> Self {
+        unsafe { Self::inter_vec(vec![self, other]).unwrap_unchecked() }
+    }
+
+    /// Intersection ∩x.
+    ///
+    /// The intersection of an empty family would be the universal set, which can't be returned.
+    #[must_use]
+    fn big_inter(self) -> Option<Self> {
+        Self::inter_vec(self.into())
     }
 
     /// Powerset P(x).
@@ -172,7 +261,7 @@ pub trait SetTrait:
     /// Determines whether `fst` is a subset of `snd`. Is optimized separately when the levels
     /// correspond to a set or a multiset.
     ///
-    /// See [`Levels::subset_gen`].
+    /// See [`Levels::both_ahu`].
     ///
     /// ## Safety
     ///
@@ -214,7 +303,9 @@ pub trait SetTrait:
     }
 
     /// Checks whether two sets are disjoint.
-    fn disjoint(&self, other: &Self) -> bool;
+    fn disjoint(&self, other: &Self) -> bool {
+        Self::disjoint_pairwise([self, other])
+    }
 
     /// Checks whether a list of sets are disjoint.
     ///
