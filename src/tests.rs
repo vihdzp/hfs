@@ -36,37 +36,57 @@ trait Suite: SetTrait {
     /// Hardcoded indices of pairs of sets containing each other.
     const MEM: &'static [(usize, usize)];
 
+    /// Parses string or panics.
+    fn parse(str: &str) -> Self {
+        str.parse().expect("could not parse string")
+    }
+
     /// Normalize string for a set.
     #[must_use]
     fn normalize(str: &str) -> String {
-        let set: Self = str.parse().unwrap();
-        set.to_string()
+        Self::parse(str).to_string()
     }
 
     /// Verify round-trip conversion between a set and a string.
     fn roundtrip(&self, str: &str) {
-        assert_eq!(self, &str.parse().unwrap());
-        assert_eq!(self.to_string(), str);
+        assert_eq!(
+            self,
+            &Self::parse(str),
+            "roundtrip fail: {str} not mapped to {self}"
+        );
+        assert_eq!(
+            self.to_string(),
+            str,
+            "roundtrip fail: {self} not mapped to {str}"
+        );
     }
 
-    /// Our [`SUITE`](Suite::SUITE) as `(&str, Self)` pairs.
-    fn suite() -> impl Iterator<Item = (&'static str, Self)> {
-        Self::SUITE.iter().map(|&str| (str, str.parse().unwrap()))
+    /// Our [`SUITE`](Suite::SUITE) as `(usize, &str, Self)` tuples.
+    fn suite() -> impl Iterator<Item = (usize, &'static str, Self)> {
+        Self::SUITE
+            .iter()
+            .enumerate()
+            .map(|(i, &str)| (i, str, Self::parse(str)))
     }
 
     /// Test that our [`SUITE`](Suite::SUITE) is well-formatted.
     fn _suite() {
-        for i in 1..Self::SUITE.len() {
+        for j in 1..Self::SUITE.len() {
+            let i = j - 1;
+            let fst = &Self::SUITE[i];
+            let snd = &Self::SUITE[j];
             assert!(
-                Self::SUITE[i - 1] > Self::SUITE[i],
-                "test suite must be inversely lexicographically ordered\n\
-                indices {} and {i}",
-                i - 1
+                fst > snd,
+                "suite fail at {i}, {j}: {fst} not greater than {snd}",
             );
         }
 
-        for str in Self::SUITE {
-            assert_eq!(str, &Self::normalize(str), "test suite must round-trip");
+        for (i, str) in Self::SUITE.iter().enumerate() {
+            assert_eq!(
+                str,
+                &Self::normalize(str),
+                "suite fail at {i}: set {str} is not normalized"
+            );
         }
     }
 
@@ -77,15 +97,15 @@ trait Suite: SetTrait {
 
     /// Test [`SetTrait::singleton`].
     fn _singleton() {
-        for (str, set) in Self::suite() {
+        for (_, str, set) in Self::suite() {
             set.singleton().roundtrip(&format!("{{{str}}}"));
         }
     }
 
     /// Test [`SetTrait::pair`].
     fn _pair() {
-        for (i, (str_1, set_1)) in Self::suite().enumerate() {
-            for (str_2, set_2) in Self::suite().skip(i + 1) {
+        for (i, str_1, set_1) in Self::suite() {
+            for (_, str_2, set_2) in Self::suite().skip(i + 1) {
                 set_1
                     .clone()
                     .pair(set_2.clone())
@@ -96,12 +116,12 @@ trait Suite: SetTrait {
 
     /// Test [`SetTrait::eq`].
     fn _eq() {
-        for (i, (_, set_1)) in Self::suite().enumerate() {
-            for (j, (_, set_2)) in Self::suite().enumerate() {
+        for (i, _, set_1) in Self::suite() {
+            for (j, _, set_2) in Self::suite() {
                 assert_eq!(
                     i == j,
                     set_1 == set_2,
-                    "set equality fail at {i}, {j}: {set_1} | {set_2}"
+                    "set equality fail at {i}, {j}: {set_1} not equal to {set_2}"
                 );
             }
         }
@@ -109,12 +129,12 @@ trait Suite: SetTrait {
 
     /// Test [`SetTrait::contains`].
     fn _contains() {
-        for (i, (_, set_1)) in Self::suite().enumerate() {
-            for (j, (_, set_2)) in Self::suite().enumerate() {
+        for (i, _, set_1) in Self::suite() {
+            for (j, _, set_2) in Self::suite() {
                 assert_eq!(
                     Self::MEM.contains(&(i, j)),
                     set_2.contains(&set_1),
-                    "set membership fail at {i}, {j}: {set_1} | {set_2}"
+                    "set membership fail at {i}, {j}: {set_1} not a member of {set_2}"
                 );
             }
         }
@@ -146,8 +166,8 @@ trait Suite: SetTrait {
 
     /// Test [`SetTrait::union`].
     fn _union() {
-        for (i, (_, set_1)) in Self::suite().enumerate() {
-            for (j, (_, set_2)) in Self::suite().enumerate() {
+        for (i, _, set_1) in Self::suite() {
+            for (j, _, set_2) in Self::suite() {
                 let union = set_1.clone().union(set_2.clone());
                 for set in [&set_1, &set_2] {
                     assert!(
@@ -161,8 +181,8 @@ trait Suite: SetTrait {
 
     /// Test [`Mset::inter`].
     fn _inter() {
-        for (i, (_, set_1)) in Self::suite().enumerate() {
-            for (j, (_, set_2)) in Self::suite().enumerate() {
+        for (i, _, set_1) in Self::suite() {
+            for (j, _, set_2) in Self::suite() {
                 let inter = set_1.clone().inter(set_2.clone());
                 for set in [&set_1, &set_2] {
                     assert!(
@@ -193,13 +213,13 @@ impl Suite for Mset {
 
     fn _sum() {
         // Remove initial parentheses.
-        let suite = || Self::suite().map(|(str, set)| (&str[1..(str.len() - 1)], set));
+        let suite = || Self::suite().map(|(_, str, set)| (&str[1..(str.len() - 1)], set));
 
         for (str_1, set_1) in suite() {
             for (str_2, set_2) in suite() {
                 set_1
                     .clone()
-                    .sum(set_2.clone())
+                    .sum(set_2)
                     .roundtrip(&Self::normalize(&format!("{{{str_1}, {str_2}}}")));
             }
         }
@@ -228,3 +248,28 @@ impl Suite for Set {
 }
 
 test!(_suite, _empty, _singleton, _pair, _eq, _contains, _nat, _sum, _union, _inter);
+
+#[test]
+fn set_kpair() {
+    for (i, _, set_1) in Set::suite() {
+        for (j, _, set_2) in Set::suite() {
+            let pair = Set::kpair(set_1.clone(), set_2.clone());
+            assert_eq!(
+                pair.ksplit().expect("could not split pair"),
+                (&set_1, &set_2),
+                "kpair fail at {i}, {j}: pair not split correctly"
+            );
+
+            assert_eq!(
+                pair.into_ksplit().expect("could not split pair"),
+                (set_1.clone(), set_2),
+                "kpair fail at {i}, {j}: pair not split correctly"
+            );
+        }
+    }
+}
+
+#[test]
+fn basic() {
+    println!("{}", Set::nat(2).prod(Set::nat(2)));
+}

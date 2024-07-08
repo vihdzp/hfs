@@ -423,7 +423,7 @@ impl SetTrait for Mset {
                 }
             }
 
-            fst.level_len() == snd.level_len() &&  fst.subset(&snd) 
+            fst.level_len() == snd.level_len() && fst.subset(&snd)
         })
     }
 

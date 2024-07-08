@@ -582,7 +582,7 @@ impl Set {
     }
 }
 
-// -------------------- Constructions -------------------- //
+// -------------------- Ordered pairs -------------------- //
 
 impl Set {
     /// Kuratowski pair (x, y).
@@ -641,5 +641,33 @@ impl Set {
                 _ => None,
             }
         }
+    }
+
+    /// Cartesian product of sets.
+    #[must_use]
+    pub fn prod(mut self, mut other: Self) -> Self {
+        // Ensure `self` is the smallest set.
+        if other.card() < self.card() {
+            mem::swap(&mut other, &mut self);
+        }
+
+        let mut prod = Self::empty();
+        // Safety: these are ordered pairs of distinct pairs of elements.
+        unsafe {
+            for (i, fst) in self.iter().enumerate() {
+                for (j, snd) in other.iter().enumerate() {
+                    if i != j {
+                        prod.insert_mut_unchecked(fst.clone().kpair(snd.clone()));
+                    }
+                }
+            }
+
+            // Re-use allocations.
+            for (fst, snd) in self.into_iter().zip(other.into_iter()) {
+                prod.insert_mut_unchecked(fst.kpair(snd));
+            }
+        }
+
+        prod
     }
 }
