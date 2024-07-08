@@ -61,20 +61,6 @@ impl FromStr for Set {
 
 // -------------------- Casting -------------------- //
 
-/// Transmute a vector of one type into a vector of another type.
-///
-/// ## Safety
-///
-/// The types `T` and `U` must be transmutable into each other. In particular, they must have the
-/// same size and alignment.
-unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
-    assert_eq!(mem::size_of::<T>(), mem::size_of::<U>());
-    assert_eq!(mem::align_of::<T>(), mem::align_of::<U>());
-
-    let mut vec = mem::ManuallyDrop::new(vec);
-    Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity())
-}
-
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
 /// The first buffer is an intermediary buffer for calculations. It must be empty when this function
@@ -235,7 +221,7 @@ impl Mset {
     /// You must guarantee that the [`Mset`] satisfy the type invariants for [`Set`].
     #[must_use]
     pub unsafe fn cast_vec(vec: Vec<Self>) -> Vec<Set> {
-        transmute_vec(vec)
+        crate::transmute_vec(vec)
     }
 }
 
@@ -244,7 +230,7 @@ impl Set {
     #[must_use]
     pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
         // Safety: `Set` and `Mset` have the same layout.
-        unsafe { transmute_vec(vec) }
+        unsafe { crate::transmute_vec(vec) }
     }
 }
 

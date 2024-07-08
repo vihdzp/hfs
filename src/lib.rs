@@ -33,6 +33,27 @@ fn has_consecutive<T: PartialEq>(slice: &[T]) -> bool {
     (1..slice.len()).any(|i| slice[i - 1] == slice[i])
 }
 
+/// Transmute a vector of one type into a vector of another type.
+///
+/// ## Safety
+///
+/// The types `T` and `U` must be transmutable into each other. In particular, they must have the
+/// same size and alignment.
+unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
+    assert_eq!(mem::size_of::<T>(), mem::size_of::<U>());
+    assert_eq!(mem::align_of::<T>(), mem::align_of::<U>());
+
+    let mut vec = mem::ManuallyDrop::new(vec);
+    Vec::from_raw_parts(vec.as_mut_ptr().cast(), vec.len(), vec.capacity())
+}
+
+/// Clears a vector and allows it to be reused for another lifetime.
+fn reuse_vec<'a, T>(mut vec: Vec<&T>) -> Vec<&'a T> {
+    vec.clear();
+    // Safety: lifetimes are not reflected in memory in any way.
+    unsafe { transmute_vec(vec) }
+}
+
 /// A seal for [`SetTrait`], avoiding foreign implementations.
 trait Seal {}
 
@@ -115,10 +136,10 @@ pub trait SetTrait:
 
     // -------------------- Constructions -------------------- //
 
-    /// Empty set Ø.
+    /// [Empty set](https://en.wikipedia.org/wiki/Empty_set) Ø.
     fn empty() -> Self;
 
-    /// Singleton set {x}.
+    /// [Singleton set](https://en.wikipedia.org/wiki/Singleton_(mathematics)) {x}.
     #[must_use]
     fn singleton(self) -> Self;
 
@@ -132,10 +153,10 @@ pub trait SetTrait:
         self
     }
 
-    /// In-place set specification.
+    /// In-place [set specification](https://en.wikipedia.org/wiki/Axiom_schema_of_specification).
     fn select_mut<P: FnMut(&Self) -> bool>(&mut self, pred: P);
 
-    /// Set specification.
+    /// [Set specification](https://en.wikipedia.org/wiki/Axiom_schema_of_specification).
     #[must_use]
     fn select<P: FnMut(&Self) -> bool>(mut self, pred: P) -> Self {
         self.select_mut(pred);
@@ -148,15 +169,12 @@ pub trait SetTrait:
         self.singleton().insert(other)
     }
 
-    /// Sum over a vector.
-    ///
-    /// See [`SetTrait::sum`].
+    /// Sum over a vector. See [`SetTrait::sum`].
     fn sum_vec(vec: Vec<Self>) -> Self;
 
     /// Sum x + y.
     ///
-    /// - The sum of two multisets is the multiset created by directly appending the elements of
-    ///   both.
+    /// - The sum of two multisets adds the multiplicities of all their elements.
     /// - The sum of two sets coincides with their union.
     #[must_use]
     fn sum(self, other: Self) -> Self {
@@ -171,34 +189,40 @@ pub trait SetTrait:
         Self::sum_vec(self.into())
     }
 
-    /// Union over a vector.
+    /// Union over a vector. See [`SetTrait::union`].
     fn union_vec(vec: Vec<Self>) -> Self;
 
     /// Union x ∪ y.
+    ///
+    /// The union of two multisets takes the maximum of their multiplicities. For sets, this results
+    /// in the union having the elements that are in either of the sets.
     #[must_use]
     fn union(self, other: Self) -> Self {
         Self::union_vec(vec![self, other])
     }
 
-    /// Union ∪x.
+    /// Union ∪x. See [`SetTrait::union`].
     #[must_use]
     fn big_union(self) -> Self {
         Self::union_vec(self.into())
     }
 
-    /// Intersection over a vector.
+    /// Intersection over a vector. See [`SetTrait::inter`].
     ///
     /// The intersection of an empty family would be the universal set, which can't be returned.
     fn inter_vec(vec: Vec<Self>) -> Option<Self>;
 
     /// Intersection x ∩ y.
+    ///
+    /// The intersection of two multisets takes the minimum of their multiplicities. For sets, this
+    /// results in the intersection having the elements that are in both of the sets.
     #[must_use]
     fn inter(self, other: Self) -> Self {
         // Safety: 2 != 0.
         unsafe { Self::inter_vec(vec![self, other]).unwrap_unchecked() }
     }
 
-    /// Intersection ∩x.
+    /// Intersection ∩x. See [`SetTrait::inter`].
     ///
     /// The intersection of an empty family would be the universal set, which can't be returned.
     #[must_use]
@@ -206,17 +230,20 @@ pub trait SetTrait:
         Self::inter_vec(self.into())
     }
 
-    /// Powerset P(x).
+    /// [Powerset](https://en.wikipedia.org/wiki/Power_set) P(x).
     #[must_use]
     fn powerset(self) -> Self;
 
-    /// The von Neumann encoding for a natural.
+    /// The [von Neumann
+    /// encoding](https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers#Definition_as_von_Neumann_ordinals)
+    /// for a natural.
     fn nat(n: usize) -> Self;
 
-    /// The Zermelo encoding for a natural.
+    /// The [Zermelo encoding](https://en.wikipedia.org/wiki/Natural_number#Zermelo_ordinals) for a
+    /// natural.
     fn zermelo(n: usize) -> Self;
 
-    /// The von Neumann hierarchy.
+    /// The [von Neumann hierarchy](https://en.wikipedia.org/wiki/Von_Neumann_universe).
     fn neumann(n: usize) -> Self;
 
     // -------------------- Relations -------------------- //
@@ -268,6 +295,44 @@ pub trait SetTrait:
             fst.level_len() == snd.level_len() && unsafe { Self::_levels_subset(&fst, &snd) }
         })
     }
+
+    /*
+    /// A filter over mutable references to elements equal to another.
+    fn filter_eq_mut<'a>(&'a mut self, other: &'a Self) -> impl Iterator<Item = &'a mut Self> {
+        // Safety: this buffer is only used to initialize the first set in `self`.
+        let mut outer_fst = unsafe { Levels::empty() };
+        let snd = Levels::init(other.as_ref()).fill();
+        let mut outer_buf = Vec::new();
+
+        // Check equality between every set in `self` and `other`.
+        unsafe { self._as_mut_slice() }
+            .iter_mut()
+            .filter(move |set| {
+                let mut fst = mem::replace(&mut outer_fst, unsafe { Levels::empty() }).reuse();
+                let mut buf = reuse_vec(std::mem::take(&mut outer_buf));
+
+                // `fst` must have exactly as many levels as `snd` of the same lengths.
+                fst.init_mut(set.as_ref());
+                while fst.step(&mut buf) {
+                    if let Some(level) = snd.get(fst.rank()) {
+                        if fst.last().len() != level.len() {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+
+                // Safety: both `fst` and `snd` are valid for `Levels<&Self>`.
+                let res = fst.level_len() == snd.level_len()
+                    && unsafe { Self::_levels_subset(&fst, &snd) };
+
+                outer_fst = fst.reuse();
+                outer_buf = reuse_vec(buf);
+                res
+            })
+    }
+    */
 
     /// Membership relation ∈.
     fn contains(&self, other: &Self) -> bool {

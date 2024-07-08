@@ -5,6 +5,12 @@ use crate::prelude::*;
 /// A [hereditarily finite](https://en.wikipedia.org/wiki/Hereditarily_finite_set)
 /// [multiset](https://en.wikipedia.org/wiki/Multiset).
 ///
+/// Unlike sets, multisets can contain an element multiple times. The number of times they do is
+/// referred to as their multiplicity or [count](Mset::count). Familiar operations on sets, like
+/// unions and intersections, are reinterpreted in terms of these multiplicities.
+///
+/// ## Internal representation
+///
 /// Each [`Mset`] contains only a `Vec` of [`Mset`]. Rust's ownership system guarantees that [quine
 /// atoms](https://en.wikipedia.org/wiki/Urelement#Quine_atoms), or any other non-regular multisets
 /// cannot exist. In other words, a multiset can't contain itself.
@@ -415,6 +421,7 @@ impl Mset {
     }
 
     /// Count multiplicity of an element in a set.
+    #[must_use]
     pub fn count(&self, other: &Self) -> usize {
         self.filter_eq(other).count()
     }

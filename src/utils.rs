@@ -248,6 +248,19 @@ impl<T> Levels<T> {
 
 /// We don't implement Levels<&Set> to avoid code duplication.
 impl<'a> Levels<&'a Mset> {
+    /// Clears a buffer and allows it to be reused for sets of a different lifetime.
+    #[must_use]
+    pub fn reuse<'b>(self) -> Levels<&'b Mset> {
+        let mut indices = self.indices;
+        indices.clear();
+
+        // Safety: no data of the original lifetime remains.
+        Levels {
+            indices,
+            data: crate::reuse_vec(self.data),
+        }
+    }
+
     /// Builds the next level from the last. Returns whether this level was nonempty.
     ///
     /// See [`Self::step_gen`].
