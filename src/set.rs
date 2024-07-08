@@ -12,7 +12,7 @@ use crate::prelude::*;
 ///
 /// - Every two elements in a [`Set`] must be distinct.
 /// - Any element in a [`Set`] must be a valid [`Set`] also.
-#[derive(Clone, Default, Eq)]
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd)]
 #[repr(transparent)]
 pub struct Set(Mset);
 
@@ -448,21 +448,11 @@ impl SetTrait for Set {
 
     // -------------------- Relations -------------------- //
 
-    unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool {
-        fst.both_ahu(
-            snd,
-            // Remove found sets, return if one isn't found.
-            |sets, children| sets.remove(&children),
-            // Add found sets. No set can be duplicated.
-            |sets, children| {
-                let len = sets.len();
-                if sets.insert(children, len).is_some() {
-                    // Safety: sets don't have duplicates.
-                    unsafe { hint::unreachable_unchecked() }
-                }
-                len
-            },
-        )
+    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
+        self.0
+            .filter_eq(&other.0)
+            // Safety: we're iterating over a set.
+            .map(|s| unsafe { s.as_set_unchecked() })
     }
 
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
@@ -650,89 +640,3 @@ impl Set {
         }
     }
 }
-
-/*
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Verify round-trip between set and string.
-    fn roundtrip(set: &Set, str: &str) {
-        assert_eq!(
-            set,
-            &str.parse().expect("set in roundtrip could not be parsed")
-        );
-        assert_eq!(set.to_string(), str);
-    }
-
-    /// Test [`Mset::into_set`].
-    #[test]
-    fn into_set() {
-        let a: Mset = "{{}, {}, {{}}, {{}, {}}}".parse().unwrap();
-        roundtrip(&a.into_set(), "{{}, {{}}}");
-
-        let b: Mset = "{{}, {}, {{{}}, {}, {}}, {{}, {}, {}}}".parse().unwrap();
-        roundtrip(&b.into_set(), "{{}, {{}}, {{}, {{}}}}");
-    }
-
-    /// Test [`Set::empty`].
-    #[test]
-    fn empty() {
-        roundtrip(&Set::empty(), "{}");
-    }
-
-    /// Test [`Set::singleton`].
-    #[test]
-    fn singleton() {
-        let set = Set::empty().singleton();
-        roundtrip(&set, "{{}}");
-        let set = set.singleton();
-        roundtrip(&set, "{{{}}}");
-    }
-
-    /// Test [`Set::pair`].
-    #[test]
-    fn pair() {
-        let a = Set::empty();
-        let b = Set::empty().singleton();
-        let pair = a.clone().pair(b);
-        roundtrip(&pair, "{{}, {{}}}");
-        let pair = a.clone().pair(a);
-        roundtrip(&pair, "{{}}");
-    }
-
-    /// Test [`Set::nat`].
-    #[test]
-    fn nat() {
-        const NATS: [&str; 4] = ["{}", "{{}}", "{{}, {{}}}", "{{}, {{}}, {{}, {{}}}}"];
-        for (n, nat) in NATS.iter().enumerate() {
-            roundtrip(&Set::nat(n), nat);
-        }
-    }
-
-    /*
-    /// Test [`Set::union`].
-    #[test]
-    fn union() {
-        let a: Mset = "{{}, {}, {{}}, {{}, {}}}".parse().unwrap();
-        let b: Mset = "{{}, {}, {{{}}}, {{}, {}, {}}}".parse().unwrap();
-
-        assert_eq!(&a, &a.clone().union(Mset::empty()));
-        roundtrip(
-            &a.union(b),
-            "{{}, {}, {}, {}, {{}}, {{}, {}}, {{}, {}, {}}, {{{}}}}",
-        );
-    }
-
-    /// Test [`Mset::inter`].
-    #[test]
-    fn inter() {
-        let a: Mset = "{{}, {}, {{}}, {{{}}} {{}, {}}}".parse().unwrap();
-        let b: Mset = "{{}, {}, {{{}}}, {{}, {}, {}}}".parse().unwrap();
-
-        assert_eq!(&Mset::empty(), &a.clone().inter(Mset::empty()));
-        roundtrip(&a.inter(b), "{{}, {}, {{{}}}}");
-    }
-    */
-}
-*/

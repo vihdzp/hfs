@@ -55,6 +55,53 @@ impl Display for Mset {
     }
 }
 
+impl PartialEq for Mset {
+    fn eq(&self, other: &Self) -> bool {
+        if let Some((fst, snd)) = Levels::eq_levels(self.as_ref(), other.as_ref()) {
+            fst.subset(&snd)
+        } else {
+            false
+        }
+    }
+}
+
+impl PartialOrd for Mset {
+    fn le(&self, other: &Self) -> bool {
+        if let Some((fst, snd)) = Levels::le_levels(self.as_ref(), other.as_ref()) {
+            fst.subset(&snd)
+        } else {
+            false
+        }
+    }
+
+    fn ge(&self, other: &Self) -> bool {
+        other.le(self)
+    }
+
+    fn lt(&self, other: &Self) -> bool {
+        self.card() < other.card() && self.le(other)
+    }
+
+    fn gt(&self, other: &Self) -> bool {
+        other.lt(self)
+    }
+
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let cmp = self.card().cmp(&other.card());
+        let test = match cmp {
+            Ordering::Equal => self.eq(other),
+            Ordering::Less => self.le(other),
+            Ordering::Greater => self.ge(other),
+        };
+
+        if test {
+            Some(cmp)
+        } else {
+            None
+        }
+    }
+}
+
 // -------------------- String parsing -------------------- //
 
 /// Error in parsing a set. This can only happen due to mismatched brackets.
@@ -301,12 +348,14 @@ impl SetTrait for Mset {
     }
 
     fn powerset(self) -> Self {
+        // P(Ø) = {Ø}.
         let n = self.card();
         let mut powerset = Self::empty().singleton();
         if n == 0 {
             return powerset;
         }
 
+        // Subsets are in correspondence to bitmasks.
         for mut i in 1..((1 << n) - 1) {
             let mut subset = Self::empty();
             for j in 0..n {
@@ -353,39 +402,29 @@ impl SetTrait for Mset {
 
     // -------------------- Relations -------------------- //
 
-    unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool {
-        fst.both_ahu(
-            snd,
-            // Decrement set count. Return if this reaches a negative.
-            |sets, children| match sets.entry(children) {
-                Entry::Vacant(_) => None,
-                Entry::Occupied(mut entry) => {
-                    let (idx, num) = entry.get_mut();
-                    let idx = *idx;
-                    if *num == 0 {
-                        entry.remove_entry();
-                    } else {
-                        *num -= 1;
+    /// A filter over elements equal to another.
+    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
+        // Safety: this buffer is only used to initialize the first set in `self`.
+        let mut fst = unsafe { Levels::empty() };
+        let snd = Levels::init(other.as_ref()).fill();
+        let mut buf = Vec::new();
+
+        // Check equality between every set in `self` and `other`.
+        self.iter().filter(move |&set| {
+            // `fst` must have exactly as many levels as `snd` of the same lengths.
+            fst.init_mut(set.as_ref());
+            while fst.step(&mut buf) {
+                if let Some(level) = snd.get(fst.rank()) {
+                    if fst.last().len() != level.len() {
+                        return false;
                     }
-                    Some(idx)
+                } else {
+                    return false;
                 }
-            },
-            // Increment set count.
-            |sets, children| {
-                let len = sets.len();
-                match sets.entry(children) {
-                    Entry::Vacant(entry) => {
-                        entry.insert((len, 0));
-                        len
-                    }
-                    Entry::Occupied(mut entry) => {
-                        let (idx, num) = entry.get_mut();
-                        *num += 1;
-                        *idx
-                    }
-                }
-            },
-        )
+            }
+
+            fst.level_len() == snd.level_len() &&  fst.subset(&snd) 
+        })
     }
 
     fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
@@ -424,170 +463,5 @@ impl Mset {
     #[must_use]
     pub fn count(&self, other: &Self) -> usize {
         self.filter_eq(other).count()
-    }
-}
-
-/// Tests for [`Mset`].
-#[cfg(test)]
-mod mset {
-    use super::*;
-
-    /// A multitude of general multisets for general-purpose testing.
-    ///
-    /// Both the list and each constituent set should be normalized, i.e. in decreasing
-    /// lexicographic order.
-    const SUITE: &[&str] = &[
-        "{}",
-        "{{}}",
-        "{{}, {}}",
-        "{{}, {{}}}",
-        "{{}, {{}}, {{}, {{}}}}",
-        "{{{}, {}}, {{}, {}}}",
-        "{{{{{}}}}}",
-    ];
-
-    /// Our [`SUITE`] as `(&str, Mset)` pairs.
-    fn suite() -> impl Iterator<Item = (&'static str, Mset)> {
-        SUITE.iter().map(|&str| (str, str.parse().unwrap()))
-    }
-
-    /// Test that our [`SUITE`] is well-formatted.
-    #[test]
-    fn test_suite() {
-        for i in 1..SUITE.len() {
-            assert!(
-                SUITE[i - 1] > SUITE[i],
-                "test suite must be inversely lexicographically ordered"
-            )
-        }
-
-        for str in SUITE {
-            assert_eq!(str, &Mset::_normalize(str), "test suite must round-trip");
-        }
-    }
-
-    /// Test [`Mset::empty`].
-    #[test]
-    fn empty() {
-        Mset::empty()._roundtrip("{}");
-    }
-
-    /// Test [`Mset::singleton`].
-    #[test]
-    fn singleton() {
-        for (str, set) in suite() {
-            set.singleton()._roundtrip(&format!("{{{str}}}"));
-        }
-    }
-
-    /// Test [`Mset::pair`].
-    #[test]
-    fn pair() {
-        for (i, (str_1, set_1)) in suite().enumerate() {
-            for (str_2, set_2) in suite().skip(i) {
-                set_1
-                    .clone()
-                    .pair(set_2.clone())
-                    ._roundtrip(&format!("{{{str_1}, {str_2}}}"));
-            }
-        }
-    }
-
-    /// Test [`Mset::eq`].
-    #[test]
-    fn eq() {
-        for (i, (_, set_1)) in suite().enumerate() {
-            for (j, (_, set_2)) in suite().enumerate() {
-                assert_eq!(
-                    i == j,
-                    set_1 == set_2,
-                    "set equality fail: {set_1} | {set_2}"
-                )
-            }
-        }
-    }
-
-    /// Test [`Mset::contains`].
-    #[test]
-    fn contains() {
-        /// Hardcoded array of pairs that belong in each other.
-        #[rustfmt::skip]
-        const MEM: &[(usize, usize)] = &[
-            (0, 1), (0, 2), (0, 3), (0, 4), (1, 3), (1, 4), (2, 5), (3, 4)
-        ];
-
-        for (i, (_, set_1)) in suite().enumerate() {
-            for (j, (_, set_2)) in suite().enumerate() {
-                assert_eq!(
-                    MEM.contains(&(i, j)),
-                    set_2.contains(&set_1),
-                    "set membership fail {i}, {j}: {set_1} | {set_2}"
-                )
-            }
-        }
-    }
-
-    /// Test [`Mset::nat`].
-    #[test]
-    fn nat() {
-        let mut outputs = Vec::<String>::new();
-        for n in 0..5 {
-            // Build naturals manually.
-            let mut str = String::from('{');
-            let mut iter = outputs.iter();
-            if let Some(fst) = iter.next() {
-                str.push_str(&fst);
-            }
-            for set in iter {
-                str.push_str(", ");
-                str.push_str(set);
-            }
-            str.push('}');
-
-            Mset::nat(n)._roundtrip(&str);
-            outputs.push(str);
-        }
-    }
-
-    /// Test [`Mset::sum`].
-    #[test]
-    fn sum() {
-        // Remove initial parentheses.
-        let suite = || suite().map(|(str, set)| (&str[1..(str.len() - 1)], set));
-
-        for (str_1, set_1) in suite() {
-            for (str_2, set_2) in suite() {
-                set_1
-                    .clone()
-                    .sum(set_2.clone())
-                    ._roundtrip(&Mset::_normalize(&format!("{{{str_1}, {str_2}}}")));
-            }
-        }
-    }
-
-    /// Test [`Mset::union`].
-    #[test]
-    fn union() {
-        for (_, set_1) in suite() {
-            for (_, set_2) in suite() {
-                let union = set_1.clone().union(set_2.clone());
-                for set in [&set_1, &set_2] {
-                    assert!(set.subset(&union), "{set} not a subset of {union}");
-                }
-            }
-        }
-    }
-
-    /// Test [`Mset::inter`].
-    #[test]
-    fn inter() {
-        for (_, set_1) in suite() {
-            for (_, set_2) in suite() {
-                let inter = set_1.clone().inter(set_2.clone());
-                for set in [&set_1, &set_2] {
-                    assert!(inter.subset(set), "{inter} not a subset of {set}");
-                }
-            }
-        }
     }
 }

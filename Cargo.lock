@@ -15,6 +15,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "concat-idents"
+version = "1.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f76990911f2267d837d9d0ad060aa63aaad170af40904b29461734c339030d4d"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -44,6 +54,7 @@ name = "hfs"
 version = "0.0.1"
 dependencies = [
  "bitvec",
+ "concat-idents",
  "derive_more",
  "smallvec",
 ]

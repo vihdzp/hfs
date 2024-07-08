@@ -9,6 +9,7 @@
 pub mod mset;
 pub mod prelude;
 pub mod set;
+mod tests;
 pub mod utils;
 
 use prelude::*;
@@ -50,7 +51,7 @@ unsafe fn transmute_vec<T, U>(vec: Vec<T>) -> Vec<U> {
 /// Clears a vector and allows it to be reused for another lifetime.
 fn reuse_vec<'a, T>(mut vec: Vec<&T>) -> Vec<&'a T> {
     vec.clear();
-    // Safety: lifetimes are not reflected in memory in any way.
+    // Safety: no data of our original lifetime remains.
     unsafe { transmute_vec(vec) }
 }
 
@@ -248,18 +249,6 @@ pub trait SetTrait:
 
     // -------------------- Relations -------------------- //
 
-    /// **Internal method.**
-    ///
-    /// Determines whether `fst` is a subset of `snd`. Is optimized separately when the levels
-    /// correspond to a set or a multiset.
-    ///
-    /// See [`Levels::both_ahu`].
-    ///
-    /// ## Safety
-    ///
-    /// Each of the levels must have been validly built from a set of type `Self`.
-    unsafe fn _levels_subset(fst: &Levels<&Mset>, snd: &Levels<&Mset>) -> bool;
-
     /// Subset relation ⊆.
     fn subset(&self, other: &Self) -> bool {
         self.le(other)
@@ -271,30 +260,7 @@ pub trait SetTrait:
     }
 
     /// A filter over elements equal to another.
-    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
-        // Safety: this buffer is only used to initialize the first set in `self`.
-        let mut fst = unsafe { Levels::empty() };
-        let snd = Levels::init(other.as_ref()).fill();
-        let mut buf = Vec::new();
-
-        // Check equality between every set in `self` and `other`.
-        self.iter().filter(move |&set| {
-            // `fst` must have exactly as many levels as `snd` of the same lengths.
-            fst.init_mut(set.as_ref());
-            while fst.step(&mut buf) {
-                if let Some(level) = snd.get(fst.rank()) {
-                    if fst.last().len() != level.len() {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-
-            // Safety: both `fst` and `snd` are valid for `Levels<&Self>`.
-            fst.level_len() == snd.level_len() && unsafe { Self::_levels_subset(&fst, &snd) }
-        })
-    }
+    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self>;
 
     /*
     /// A filter over mutable references to elements equal to another.
@@ -357,80 +323,4 @@ pub trait SetTrait:
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool
     where
         Self: 'a;
-
-    // -------------------- Internals -------------------- //
-
-    /// **Internal method.**
-    ///
-    ///  Normalize string for a set.
-    #[must_use]
-    fn _normalize(str: &str) -> String {
-        let set: Self = str.parse().unwrap();
-        set.to_string()
-    }
-
-    /// **Internal method.**
-    ///
-    /// Verify round-trip conversion between a set and a string.
-    fn _roundtrip(&self, str: &str) {
-        assert_eq!(self, &str.parse().unwrap());
-        assert_eq!(self.to_string(), str);
-    }
 }
-
-/// Implements [`PartialOrd`] for [`SetTrait`].
-macro_rules! impl_partial_ord {
-    ($t: ty) => {
-        impl PartialEq for $t {
-            fn eq(&self, other: &Self) -> bool {
-                if let Some((fst, snd)) = Levels::eq_levels(self.as_ref(), other.as_ref()) {
-                    // Safety: both levels come from the appropriate set type.
-                    unsafe { <$t>::_levels_subset(&fst, &snd) }
-                } else {
-                    false
-                }
-            }
-        }
-
-        impl PartialOrd for $t {
-            fn le(&self, other: &Self) -> bool {
-                if let Some((fst, snd)) = Levels::le_levels(self.as_ref(), other.as_ref()) {
-                    // Safety: both levels come from the appropriate set type.
-                    unsafe { <$t>::_levels_subset(&fst, &snd) }
-                } else {
-                    false
-                }
-            }
-
-            fn ge(&self, other: &Self) -> bool {
-                other.le(self)
-            }
-
-            fn lt(&self, other: &Self) -> bool {
-                self.card() < other.card() && self.le(other)
-            }
-
-            fn gt(&self, other: &Self) -> bool {
-                other.lt(self)
-            }
-
-            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                let cmp = self.card().cmp(&other.card());
-                let test = match cmp {
-                    Ordering::Equal => self.eq(other),
-                    Ordering::Less => self.le(other),
-                    Ordering::Greater => self.ge(other),
-                };
-
-                if test {
-                    Some(cmp)
-                } else {
-                    None
-                }
-            }
-        }
-    };
-}
-
-impl_partial_ord!(Mset);
-impl_partial_ord!(Set);

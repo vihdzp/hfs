@@ -633,11 +633,6 @@ impl<'a> Levels<&'a Mset> {
     /// Returns whether `self` is a subset of `other`, meaning it contains each set at least as many
     /// times.
     ///
-    /// The functions `fst_fun` and `snd_fun` update our data structure for every element found in
-    /// the first and second sets respectively, and return an assigned index uniquely representing
-    /// the element. Note that the second set is searched before the first. If `fst_fun` returns
-    /// `None`, it means we've shown we don't have a subset.
-    ///
     /// ## Precalculations
     ///
     /// It can save a lot of time to first perform basic checks as the levels are built. For
@@ -648,16 +643,7 @@ impl<'a> Levels<&'a Mset> {
     /// Calling this function implies these basic tests have already been performed. In particular,
     /// the function does not consider the case where `self` has a larger rank than `other`.
     #[must_use]
-    pub(crate) fn both_ahu<
-        T,
-        F: FnMut(&mut BTreeMap<SmallVec<usize>, T>, SmallVec<usize>) -> Option<usize>,
-        G: FnMut(&mut BTreeMap<SmallVec<usize>, T>, SmallVec<usize>) -> usize,
-    >(
-        &'a self,
-        other: &'a Self,
-        mut fst_fun: F,
-        mut snd_fun: G,
-    ) -> bool {
+    pub(crate) fn subset(&'a self, other: &'a Self) -> bool {
         debug_assert!(
             self.level_len() <= other.level_len(),
             "this check should have been performed beforehand"
@@ -681,7 +667,20 @@ impl<'a> Levels<&'a Mset> {
                 Levels::step_ahu(snd_level, &mut cur, &mut snd_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();
-                    Some(snd_fun(&mut sets, children))
+
+                    // Increment set count.
+                    let len = sets.len();
+                    match sets.entry(children) {
+                        Entry::Vacant(entry) => {
+                            entry.insert((len, 0));
+                            Some(len)
+                        }
+                        Entry::Occupied(mut entry) => {
+                            let (idx, num) = entry.get_mut();
+                            *num += 1;
+                            Some(*idx)
+                        }
+                    }
                 });
                 mem::swap(&mut cur, &mut snd_next);
 
@@ -689,7 +688,21 @@ impl<'a> Levels<&'a Mset> {
                 let res = Levels::step_ahu(fst_level, &mut cur, &mut fst_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();
-                    fst_fun(&mut sets, children)
+
+                    // Decrement set count. Return if this reaches a negative.
+                    match sets.entry(children) {
+                        Entry::Vacant(_) => None,
+                        Entry::Occupied(mut entry) => {
+                            let (idx, num) = entry.get_mut();
+                            let idx = *idx;
+                            if *num == 0 {
+                                entry.remove_entry();
+                            } else {
+                                *num -= 1;
+                            }
+                            Some(idx)
+                        }
+                    }
                 });
                 if !res {
                     return false;
