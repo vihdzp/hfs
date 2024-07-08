@@ -271,5 +271,7 @@ fn set_kpair() {
 
 #[test]
 fn basic() {
-    println!("{}", Set::nat(2).prod(Set::nat(2)));
+    for nat in Class::nat() {
+        println!("{nat}");
+    }
 }

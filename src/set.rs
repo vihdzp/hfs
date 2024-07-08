@@ -338,9 +338,7 @@ impl SetTrait for Set {
     }
 
     fn insert_mut(&mut self, set: Self) {
-        if !self.contains(&set) {
-            self.0.insert_mut(set.0);
-        }
+        self.try_insert(set);
     }
 
     fn select_mut<P: FnMut(&Set) -> bool>(&mut self, mut pred: P) {
@@ -580,6 +578,18 @@ impl Set {
         self.insert_mut_unchecked(other);
         self
     }
+
+    /// Inserts an element into a set in place. Returns whether the size of the set changed.
+    pub fn try_insert(&mut self, set: Self) -> bool {
+        let res = !self.contains(&set);
+        if res {
+            // Safety: we just performed the relevant check.
+            unsafe {
+                self.insert_mut_unchecked(set);
+            }
+        }
+        res
+    }
 }
 
 // -------------------- Ordered pairs -------------------- //
@@ -641,6 +651,47 @@ impl Set {
                 _ => None,
             }
         }
+    }
+
+    /// Tagged or disjoint union.
+    ///
+    /// See [`Self::tag_union`].
+    pub fn tag_union_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
+        let mut union = Self::empty();
+        for set in iter {
+            // Safety: since our original sets and the elements in them were distinct, so are our
+            // pairs.
+            unsafe {
+                for element in set.as_slice()[1..].iter() {
+                    union.insert_mut_unchecked(set.clone().kpair(element.clone()));
+                }
+
+                // Reuse `set` allocation.
+                if let Some(fst) = set.as_slice().first().cloned() {
+                    union.insert_mut_unchecked(set.kpair(fst));
+                }
+            }
+        }
+
+        union
+    }
+
+    /// Tagged or disjoint union over a vector.
+    ///
+    /// See [`Self::tag_union`].
+    pub fn tag_union_vec(vec: Vec<Self>) -> Self {
+        Self::tag_union_iter(vec)
+    }
+
+    /// Tagged or disjoint union.
+    ///
+    /// This returns the set of all pairs (x, y), where x is either of the two sets, and y is an
+    /// element of it.
+    ///
+    /// Whereas the usual union can vary in cardinality, the tagged union of two sets always adds
+    /// their cardinalities.
+    pub fn tag_union(self, other: Self) -> Self {
+        Self::tag_union_iter([self, other])
     }
 
     /// Cartesian product of sets.

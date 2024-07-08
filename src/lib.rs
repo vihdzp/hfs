@@ -6,6 +6,7 @@
 #![warn(clippy::missing_docs_in_private_items)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 
+pub mod class;
 pub mod mset;
 pub mod prelude;
 pub mod set;
@@ -99,6 +100,11 @@ pub trait SetTrait:
     /// Note that internally, both kinds of set store [`Mset`].
     #[allow(clippy::missing_safety_doc)]
     unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset>;
+
+    /// Converts the set into a vector of sets.
+    fn into_vec(self) -> Vec<Self> {
+        self.into()
+    }
 
     /// Removes all elements from the set.
     fn clear(&mut self) {

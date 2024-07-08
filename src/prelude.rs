@@ -2,6 +2,7 @@
 
 // The actual prelude.
 pub use crate::{
+    class::{self, Class},
     mset::{Mset, SetError},
     set::Set,
     utils::Ahu,
