@@ -182,6 +182,10 @@ impl SetTrait for Mset {
         Self(Vec::new())
     }
 
+    fn with_capacity(capacity: usize) -> Self {
+        Self(Vec::with_capacity(capacity))
+    }
+
     fn singleton(self) -> Self {
         Self(vec![self])
     }
@@ -400,6 +404,21 @@ impl SetTrait for Mset {
         set
     }
 
+    fn into_choose(mut self) -> Option<Self> {
+        self.0.pop()
+    }
+
+    fn choose_uniq(&self) -> Option<&Self> {
+        self.choose_uniq_idx().map(
+            // Safety: our index is valid.
+            |idx| unsafe { self.0.get_unchecked(idx) },
+        )
+    }
+
+    fn into_choose_uniq(mut self) -> Option<Self> {
+        self.choose_uniq_idx().map(|idx| self.0.swap_remove(idx))
+    }
+
     // -------------------- Relations -------------------- //
 
     /// A filter over elements equal to another.
@@ -463,5 +482,15 @@ impl Mset {
     #[must_use]
     pub fn count(&self, other: &Self) -> usize {
         self.filter_eq(other).count()
+    }
+
+    /// Chooses some arbitrary index containing an element. Equal multisets should get assigned indices that
+    /// correspond to equal multisets.
+    fn choose_uniq_idx(&self) -> Option<usize> {
+        let vec = Ahu::new_iter(self);
+        vec.iter()
+            .enumerate()
+            .min_by_key(|s| s.1)
+            .map(|(idx, _)| idx)
     }
 }

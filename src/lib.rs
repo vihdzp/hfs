@@ -147,6 +147,11 @@ pub trait SetTrait:
     /// [Empty set](https://en.wikipedia.org/wiki/Empty_set) Ø.
     fn empty() -> Self;
 
+    /// [Empty set](https://en.wikipedia.org/wiki/Empty_set) Ø.
+    ///
+    /// Allows the initial capacity for the inner buffer to be specified.
+    fn with_capacity(capacity: usize) -> Self;
+
     /// [Singleton set](https://en.wikipedia.org/wiki/Singleton_(mathematics)) {x}.
     #[must_use]
     fn singleton(self) -> Self;
@@ -253,6 +258,39 @@ pub trait SetTrait:
 
     /// The [von Neumann hierarchy](https://en.wikipedia.org/wiki/Von_Neumann_universe).
     fn neumann(n: usize) -> Self;
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// This should be treated as a complete black box. In particular, **equal sets don't
+    /// necessarily choose the same value**. If that fact makes this philosophically unsuitable as
+    /// an implementation of choice, we also provide [`SetTrait::choose_uniq`], which is more
+    /// computationally expensive but chooses the same element for equal sets.
+    ///
+    /// Likewise, we don't guarantee that different functions like [`SetTrait::into_choose`] will
+    /// select the same element.
+    fn choose(&self) -> Option<&Self> {
+        self.as_slice().first()
+    }
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// See [`SetTrait::choose`].
+    fn into_choose(self) -> Option<Self>;
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// Unlike [`SetTrait::choose`], this always selects the same element for equal sets. We make no
+    /// further guarantees – this should be treated as a black box.
+    fn choose_uniq(&self) -> Option<&Self>;
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// See [`SetTrait::choose_uniq`].
+    fn into_choose_uniq(self) -> Option<Self>;
 
     // -------------------- Relations -------------------- //
 

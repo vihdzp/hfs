@@ -333,6 +333,10 @@ impl SetTrait for Set {
         Self(Mset::empty())
     }
 
+    fn with_capacity(capacity: usize) -> Self {
+        Self(Mset::with_capacity(capacity))
+    }
+
     fn singleton(self) -> Self {
         Self(self.0.singleton())
     }
@@ -445,6 +449,27 @@ impl SetTrait for Set {
 
     fn neumann(n: usize) -> Self {
         Self(Mset::neumann(n))
+    }
+
+    fn into_choose(mut self) -> Option<Self> {
+        self.0 .0.pop().map(
+            // Safety: we're choosing a set.
+            |s| unsafe { s.into_set_unchecked() },
+        )
+    }
+
+    fn choose_uniq(&self) -> Option<&Self> {
+        self.0.choose_uniq().map(
+            // Safety: we're choosing a set.
+            |s| unsafe { s.as_set_unchecked() },
+        )
+    }
+
+    fn into_choose_uniq(self) -> Option<Self> {
+        self.0.into_choose_uniq().map(
+            // Safety: we're choosing a set.
+            |s| unsafe { s.into_set_unchecked() },
+        )
     }
 
     // -------------------- Relations -------------------- //
@@ -700,11 +725,13 @@ impl Set {
     #[must_use]
     pub fn prod(mut self, mut other: Self) -> Self {
         // Ensure `self` is the smallest set.
-        if other.card() < self.card() {
+        let c1 = self.card();
+        let c2 = other.card();
+        if c2 < c1 {
             mem::swap(&mut other, &mut self);
         }
 
-        let mut prod = Self::empty();
+        let mut prod = Self::with_capacity(c1 * c2);
         // Safety: these are ordered pairs of distinct pairs of elements.
         unsafe {
             for (i, fst) in self.iter().enumerate() {
@@ -723,4 +750,13 @@ impl Set {
 
         prod
     }
+
+    /*/// Set of functions between two sets.
+    pub fn func(self, other: Self) -> Self {
+        let mut func = Self::with_capacity(other.card().pow(self.card() as u32));
+
+        // The indices in `other` from which we grab the maps for `self`.
+        let mut indices = vec![0; other.card()];
+        todo!()
+    }*/
 }

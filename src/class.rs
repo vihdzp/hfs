@@ -46,7 +46,7 @@ impl<I: Iterator<Item = Set>> Iterator for Dedup<I> {
 
 /// Interleaves multiple iterators, getting all the elements from each.
 ///
-/// We make no assumption on the order in which elements are returned, other than the fact that each
+/// We make no guarantee on the order in which elements are returned, other than the fact that each
 /// iterator will be called until it returns `None`, even in the presence of infinite iterators.
 #[derive(Clone, Default)]
 pub struct Interleave<I: Iterator> {
@@ -82,7 +82,7 @@ impl<I: Iterator> Iterator for Interleave<I> {
                 return next;
             }
 
-            // Remove spent iterators.
+            // Remove spent iterator.
             self.iters.swap_remove(self.index);
         }
 

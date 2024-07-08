@@ -740,44 +740,58 @@ impl Ahu {
         Self(BitVec::EMPTY)
     }
 
+    /// Finds the [`Ahu`] encodings for an iterator over multisets.
+    pub fn new_iter<'a, I: IntoIterator<Item = &'a Mset>>(iter: I) -> Vec<Self> {
+        /// Avoid code duplication.
+        fn new_iter_levels(levels: Levels<&Mset>) -> Vec<Ahu> {
+            levels
+                .fill()
+                .mod_ahu(
+                    0,
+                    (),
+                    |(), slice, _| {
+                        // Reuse buffer. Add enclosing parentheses.
+                        slice.sort_unstable();
+                        let mut iter = slice.iter_mut();
+                        let fst;
+                        if let Some(f) = iter.next() {
+                            fst = f;
+                        } else {
+                            return Some(Ahu::empty());
+                        }
+                        let mut buf = mem::take(fst);
+
+                        // Closing parenthesis.
+                        buf.0.push(false);
+                        buf.0.push(false);
+                        buf.0.shift_right(1);
+                        buf.0.set(0, true);
+                        // Opening parenthesis.
+
+                        for set in iter {
+                            buf.0.push(true);
+                            buf.0.append(&mut set.0);
+                            buf.0.push(false);
+                        }
+                        Some(buf)
+                    },
+                    |()| {},
+                )
+                .unwrap()
+        }
+
+        if let Some(levels) = Levels::init_iter(iter) {
+            new_iter_levels(levels)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Finds the [`Ahu`] encoding for a multiset.
     #[must_use]
     pub fn new(set: &Mset) -> Self {
-        let levels = Levels::init(set).fill();
-        let res = levels.mod_ahu(
-            0,
-            (),
-            |(), slice, _| {
-                // Reuse buffer. Add enclosing parentheses.
-                slice.sort_unstable();
-                let mut iter = slice.iter_mut();
-                let fst;
-                if let Some(f) = iter.next() {
-                    fst = f;
-                } else {
-                    return Some(BitVec::new());
-                }
-                let mut buf: BitVec<_, _> = mem::take(fst);
-
-                // Closing parenthesis.
-                buf.push(false);
-                buf.push(false);
-                buf.shift_right(1);
-                buf.set(0, true);
-                // Opening parenthesis.
-
-                for set in iter {
-                    buf.push(true);
-                    buf.append(set);
-                    buf.push(false);
-                }
-                Some(buf)
-            },
-            |()| {},
-        );
-
         // Safety: the top level of our Levels has a root node.
-        Self(unsafe { res.unwrap_unchecked().pop().unwrap_unchecked() })
+        unsafe { Self::new_iter([set]).pop().unwrap_unchecked() }
     }
 }
 
