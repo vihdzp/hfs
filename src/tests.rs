@@ -62,7 +62,7 @@ trait Suite: SetTrait {
                 "test suite must be inversely lexicographically ordered\n\
                 indices {} and {i}",
                 i - 1
-            )
+            );
         }
 
         for str in Self::SUITE {
@@ -102,7 +102,7 @@ trait Suite: SetTrait {
                     i == j,
                     set_1 == set_2,
                     "set equality fail at {i}, {j}: {set_1} | {set_2}"
-                )
+                );
             }
         }
     }
@@ -115,7 +115,7 @@ trait Suite: SetTrait {
                     Self::MEM.contains(&(i, j)),
                     set_2.contains(&set_1),
                     "set membership fail at {i}, {j}: {set_1} | {set_2}"
-                )
+                );
             }
         }
     }
@@ -128,7 +128,7 @@ trait Suite: SetTrait {
             let mut str = String::from('{');
             let mut iter = outputs.iter();
             if let Some(fst) = iter.next() {
-                str.push_str(&fst);
+                str.push_str(fst);
             }
             for set in iter {
                 str.push_str(", ");
@@ -223,7 +223,7 @@ impl Suite for Set {
     ];
 
     fn _sum() {
-        Self::_union()
+        Self::_union();
     }
 }
 

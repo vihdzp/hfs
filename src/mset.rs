@@ -57,7 +57,7 @@ impl Display for Mset {
 
 impl PartialEq for Mset {
     fn eq(&self, other: &Self) -> bool {
-        if let Some((fst, snd)) = Levels::eq_levels(self.as_ref(), other.as_ref()) {
+        if let Some((fst, snd)) = Levels::eq_levels(self, other) {
             fst.subset(&snd)
         } else {
             false
@@ -67,7 +67,7 @@ impl PartialEq for Mset {
 
 impl PartialOrd for Mset {
     fn le(&self, other: &Self) -> bool {
-        if let Some((fst, snd)) = Levels::le_levels(self.as_ref(), other.as_ref()) {
+        if let Some((fst, snd)) = Levels::le_levels(self, other) {
             fst.subset(&snd)
         } else {
             false
@@ -406,7 +406,7 @@ impl SetTrait for Mset {
     fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
         // Safety: this buffer is only used to initialize the first set in `self`.
         let mut fst = unsafe { Levels::empty() };
-        let snd = Levels::init(other.as_ref()).fill();
+        let snd = Levels::init(other).fill();
         let mut buf = Vec::new();
 
         // Check equality between every set in `self` and `other`.
