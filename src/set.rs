@@ -99,6 +99,7 @@ impl Mset {
     /// Flattens a multiset into a set hereditarily.
     #[must_use]
     pub fn into_set(mut self) -> Set {
+        dbg!(&self);
         let levels = Levels::init(std::ptr::from_mut(&mut self)).fill_mut();
         let mut buf = Vec::new();
         let mut buf_pairs = Vec::new();
@@ -107,7 +108,7 @@ impl Mset {
         // still valid, as does our cardinality function.
         unsafe {
             levels.mod_ahu_gen(
-                1,
+                0,
                 BTreeMap::new(),
                 |s| (*s.cast_const()).card(),
                 |sets, slice, &set| {
@@ -348,7 +349,8 @@ impl SetTrait for Set {
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
     }
 
-    fn sum_vec(mut vec: Vec<Self>) -> Self {
+    fn sum_vec(vec: Vec<Self>) -> Self {
+        // Union of empty collection is Ø.
         let levels;
         if let Some(lev) = Levels::init_iter(vec.iter().map(AsRef::as_ref)) {
             levels = lev;
@@ -356,13 +358,14 @@ impl SetTrait for Set {
             return Self::empty();
         }
 
-        let keys = levels.fill().ahu(0);
-        // Safety: `keys` has as many elements as `vec`.
+        let keys = levels.fill().ahu(1);
+        let mut children = Mset::sum_vec(Set::cast_vec(vec));
+        // Safety: `keys` has as many elements as `children`.
         unsafe {
-            dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
+            dedup_by(&mut children.0, &keys, &mut Vec::new(), &mut Vec::new());
         }
 
-        Self(Mset(Self::cast_vec(vec)))
+        Self(children)
     }
 
     fn union_vec(vec: Vec<Self>) -> Self {

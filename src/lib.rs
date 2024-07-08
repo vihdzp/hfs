@@ -74,6 +74,7 @@ pub trait SetTrait:
     + Into<Vec<Self>>
     + IntoIterator<Item = Self>
     + PartialOrd
+    + 'static
 {
     // -------------------- Basic methods -------------------- //
 
@@ -251,12 +252,12 @@ pub trait SetTrait:
 
     /// Subset relation ⊆.
     fn subset(&self, other: &Self) -> bool {
-        self.le(other)
+        self <= other
     }
 
     /// Strict subset relation ⊂.
     fn ssubset(&self, other: &Self) -> bool {
-        self.lt(other)
+        self < other
     }
 
     /// A filter over elements equal to another.
@@ -313,14 +314,10 @@ pub trait SetTrait:
     /// Checks whether a list of sets are disjoint.
     ///
     /// For pairwise disjoint sets, see [`SetTrait::disjoint_pairwise`].
-    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool
-    where
-        Self: 'a;
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
 
     /// Checks whether a list of sets are pairwise disjoint.
     ///
     /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_iter`].
-    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool
-    where
-        Self: 'a;
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
 }

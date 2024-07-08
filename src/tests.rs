@@ -85,7 +85,7 @@ trait Suite: SetTrait {
     /// Test [`SetTrait::pair`].
     fn _pair() {
         for (i, (str_1, set_1)) in Self::suite().enumerate() {
-            for (str_2, set_2) in Self::suite().skip(i) {
+            for (str_2, set_2) in Self::suite().skip(i + 1) {
                 set_1
                     .clone()
                     .pair(set_2.clone())
@@ -101,7 +101,7 @@ trait Suite: SetTrait {
                 assert_eq!(
                     i == j,
                     set_1 == set_2,
-                    "set equality fail: {set_1} | {set_2}"
+                    "set equality fail at {i}, {j}: {set_1} | {set_2}"
                 )
             }
         }
@@ -114,7 +114,7 @@ trait Suite: SetTrait {
                 assert_eq!(
                     Self::MEM.contains(&(i, j)),
                     set_2.contains(&set_1),
-                    "set membership fail {i}, {j}: {set_1} | {set_2}"
+                    "set membership fail at {i}, {j}: {set_1} | {set_2}"
                 )
             }
         }
@@ -146,11 +146,14 @@ trait Suite: SetTrait {
 
     /// Test [`SetTrait::union`].
     fn _union() {
-        for (_, set_1) in Self::suite() {
-            for (_, set_2) in Self::suite() {
+        for (i, (_, set_1)) in Self::suite().enumerate() {
+            for (j, (_, set_2)) in Self::suite().enumerate() {
                 let union = set_1.clone().union(set_2.clone());
                 for set in [&set_1, &set_2] {
-                    assert!(set.subset(&union), "{set} not a subset of {union}");
+                    assert!(
+                        set.subset(&union),
+                        "union fail at {i}, {j}: {set} not a subset of {union}"
+                    );
                 }
             }
         }
@@ -158,11 +161,14 @@ trait Suite: SetTrait {
 
     /// Test [`Mset::inter`].
     fn _inter() {
-        for (_, set_1) in Self::suite() {
-            for (_, set_2) in Self::suite() {
+        for (i, (_, set_1)) in Self::suite().enumerate() {
+            for (j, (_, set_2)) in Self::suite().enumerate() {
                 let inter = set_1.clone().inter(set_2.clone());
                 for set in [&set_1, &set_2] {
-                    assert!(inter.subset(set), "{inter} not a subset of {set}");
+                    assert!(
+                        inter.subset(set),
+                        "intersection fail at {i}, {j}: {inter} not a subset of {set}"
+                    );
                 }
             }
         }
@@ -205,15 +211,15 @@ impl Suite for Set {
         "{}",
         "{{}}",
         "{{}, {{}}}",
-        "{{}, {{}}, {{{}}}}",
         "{{}, {{}}, {{}, {{}}}}",
+        "{{}, {{}}, {{{}}}}",
         "{{{}, {{}}}, {{}, {{{}}}}}",
         "{{{{{}}}}}",
     ];
 
     #[rustfmt::skip]
     const MEM: &'static [(usize, usize)] = &[
-        (0, 1), (0, 2), (0, 3), (0, 4), (1, 3), (1, 4), (2, 5), (3, 4)
+        (0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (1, 3), (1, 4), (2, 3), (2, 5)
     ];
 
     fn _sum() {
