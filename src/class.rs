@@ -58,6 +58,7 @@ pub struct Interleave<I: Iterator> {
 
 impl<I: Iterator> Interleave<I> {
     /// Interleaves a set of iterators.
+    #[must_use]
     pub const fn new(iters: Vec<I>) -> Self {
         Self { iters, index: 0 }
     }
@@ -79,10 +80,10 @@ impl<I: Iterator> Iterator for Interleave<I> {
                 // By increasing the index, we guarantee we get elements out of every iterator.
                 self.index += 1;
                 return next;
-            } else {
-                // Remove spent iterators.
-                self.iters.swap_remove(self.index);
             }
+
+            // Remove spent iterators.
+            self.iters.swap_remove(self.index);
         }
 
         None
@@ -98,6 +99,7 @@ macro_rules! naturals {
 
         impl $class {
             #[doc = concat!("Initializes an iterator over  ", $name, " naturals.")]
+            #[must_use]
             pub const fn new() -> Self {
                 Self(0)
             }
@@ -129,6 +131,7 @@ pub struct Univ(Vec<Set>);
 
 impl Univ {
     /// Initializes the universal class.
+    #[must_use]
     pub const fn new() -> Self {
         Self(Vec::new())
     }
@@ -144,7 +147,7 @@ impl Iterator for Univ {
         let mut m = 0;
         while n != 0 {
             if n % 2 == 1 {
-                // All sets we build are distinct.
+                // Safety: all sets we build are distinct.
                 unsafe {
                     set.insert_mut_unchecked(self.0.get_unchecked(m).clone());
                 }
@@ -220,30 +223,35 @@ impl Class {
     }
 
     /// The empty class Ø.
+    #[must_use]
     pub fn empty() -> Self {
         // Safety: this iterator has no duplicates.
         unsafe { Self::new_unchecked(std::iter::empty()) }
     }
 
     /// The universal class.
+    #[must_use]
     pub fn univ() -> Self {
         // Safety: this iterator has no duplicates.
         unsafe { Self::new_unchecked(Univ::new()) }
     }
 
     /// The class of naturals ℕ.
+    #[must_use]
     pub fn nat() -> Self {
         // Safety: this iterator has no duplicates.
         unsafe { Self::new_unchecked(Nat::new()) }
     }
 
     /// The class of Zermelo naturals ℕ.
+    #[must_use]
     pub fn zermelo() -> Self {
         // Safety: this iterator has no duplicates.
         unsafe { Self::new_unchecked(Zermelo::new()) }
     }
 
     /// Class specification.
+    #[must_use]
     pub fn select<P: FnMut(&Set) -> bool + 'static>(self, pred: P) -> Self {
         // Safety: if the original class has no duplicates, neither does this one.
         unsafe { Self::new_unchecked(self.into_iter().filter(pred)) }
@@ -269,6 +277,7 @@ impl Class {
     /// Class union.
     ///
     /// This internally uses [`Interleave`] to get the elements out of each set.
+    #[must_use]
     pub fn union(self, other: Self) -> Self {
         Self::union_vec(vec![self, other])
     }

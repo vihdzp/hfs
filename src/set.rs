@@ -662,7 +662,7 @@ impl Set {
             // Safety: since our original sets and the elements in them were distinct, so are our
             // pairs.
             unsafe {
-                for element in set.as_slice()[1..].iter() {
+                for element in &set.as_slice()[1..] {
                     union.insert_mut_unchecked(set.clone().kpair(element.clone()));
                 }
 
@@ -679,6 +679,7 @@ impl Set {
     /// Tagged or disjoint union over a vector.
     ///
     /// See [`Self::tag_union`].
+    #[must_use]
     pub fn tag_union_vec(vec: Vec<Self>) -> Self {
         Self::tag_union_iter(vec)
     }
@@ -690,6 +691,7 @@ impl Set {
     ///
     /// Whereas the usual union can vary in cardinality, the tagged union of two sets always adds
     /// their cardinalities.
+    #[must_use]
     pub fn tag_union(self, other: Self) -> Self {
         Self::tag_union_iter([self, other])
     }
