@@ -165,7 +165,7 @@ pub trait SetTrait:
     ///
     /// Returns `None` if this is not a singleton.
     fn as_singleton(&self) -> Option<&Self> {
-        if self.card() != 1 {
+        if self.card() == 1 {
             None
         } else {
             self.as_slice().first()
@@ -176,12 +176,12 @@ pub trait SetTrait:
     ///
     /// Returns `None` if this is not a singleton.
     fn as_singleton_mut(&mut self) -> Option<&mut Self> {
-        if self.card() != 1 {
-            None
-        } else {
+        if self.card() == 1 {
             // Safety: it's not a problem if this element is modified, as a singleton can never have
             // duplicate elements to begin with.
             unsafe { self._as_mut_slice().first_mut() }
+        } else {
+            None
         }
     }
 

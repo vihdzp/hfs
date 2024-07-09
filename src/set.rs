@@ -631,6 +631,7 @@ impl Set {
     }
 
     /// A Kuratowski pair (x, x) = {{x}}.
+    #[must_use]
     pub fn id_kpair(self) -> Self {
         self.singleton().singleton()
     }
@@ -761,6 +762,7 @@ impl Set {
     }
 
     /// Returns the identity function with domain `self`.
+    #[must_use]
     pub fn id_func(self) -> Self {
         let res: Mset = self.into_iter().map(|s| s.id_kpair().0).collect();
         // Safety: all elements were originally sets and are distinct.
@@ -768,6 +770,7 @@ impl Set {
     }
 
     /// Returns the constant function with domain `self` and value `cst`.
+    #[must_use]
     pub fn const_func(self, cst: Set) -> Self {
         let len = self.card();
         let mut func = Set::with_capacity(len);
@@ -788,7 +791,13 @@ impl Set {
         func
     }
 
-    /// Set of functions between two sets.
+    /// Set of functions between two sets x → y.
+    ///
+    /// ## Panics
+    ///
+    /// This function will panic if you attempt to create a set that's too large. Note that this is
+    /// quite easy to do, as |x → y| = |y|^|x|.
+    #[must_use]
     pub fn func(self, mut other: Self) -> Self {
         let dom_card = self.card();
         let cod_card = other.card();
@@ -802,11 +811,18 @@ impl Set {
             // No other function has codomain Ø.
             0 => return Self::empty(),
             // There is only one function into a singleton.
-            1 => return Self::const_func(self, other.into_singleton().unwrap()).singleton(),
+            1 => {
+                // Safety: this is a singleton.
+                return Self::const_func(self, unsafe {
+                    other.into_singleton().unwrap_unchecked()
+                })
+                .singleton();
+            }
             _ => {}
         }
 
-        let size = cod_card.pow(dom_card as u32);
+        #[allow(clippy::cast_possible_truncation)]
+        let size = cod_card.pow(dom_card.try_into().expect("domain too large"));
         let mut funcs = Self::with_capacity(size);
 
         // The indices in `other` into which we map the elements in `self`.
@@ -830,15 +846,17 @@ impl Set {
                 }
             }
 
-            let mut func = Self::with_capacity(dom_card);
+            // Safety: all pairs within a single function have distinct first entries, and are thus
+            // distinct. All the functions we build in general are distinct.
             unsafe {
+                let mut func = Self::with_capacity(dom_card);
                 for (i, &j) in indices.iter().enumerate() {
                     func.insert_mut_unchecked(
                         self.as_slice()
                             .get_unchecked(i)
                             .clone()
                             .kpair(other.as_slice().get_unchecked(j).clone()),
-                    )
+                    );
                 }
 
                 funcs.insert_mut_unchecked(func);
@@ -846,6 +864,7 @@ impl Set {
         }
 
         // Reuse `self`.
+        // Safety: same as above.
         unsafe {
             funcs.insert_mut_unchecked(Self::const_func(
                 self,

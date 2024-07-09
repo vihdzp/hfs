@@ -191,10 +191,10 @@ impl SetTrait for Mset {
     }
 
     fn into_singleton(mut self) -> Option<Self> {
-        if self.card()!=1{
+        if self.card() != 1 {
             return None;
         }
-       
+
         self.0.pop()
     }
 
