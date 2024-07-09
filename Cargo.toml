@@ -1,7 +1,7 @@
 [package]
 name = "hfs"
 authors = ["Violeta Hernández Palacios <vi.hdz.p@gmail.com>"]
-categories = ["mathematics", "math"]
+categories = ["algorithms", "mathematics"]
 description = "Hereditarily finite sets."
 edition = "2021"
 keywords = ["math", "set", "theory", "zfc"]
