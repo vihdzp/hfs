@@ -268,10 +268,3 @@ fn set_kpair() {
         }
     }
 }
-
-#[test]
-fn basic() {
-    for nat in Class::nat() {
-        println!("{nat}");
-    }
-}

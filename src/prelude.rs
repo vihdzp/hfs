@@ -12,11 +12,11 @@ pub use crate::{
 // Convenient imports within the crate.
 pub(crate) use crate::{
     has_consecutive,
-    utils::{btree_index, Levels},
+    utils::{btree_index, Compare, Levels, },
     SmallVec,
 };
 pub(crate) use bitvec::prelude::*;
-pub(crate) use derive_more::IntoIterator;
+pub(crate) use derive_more::{AsRef, Display, Into, IntoIterator};
 pub(crate) use std::{
     cmp::Ordering,
     collections::{btree_map::Entry, BTreeMap},

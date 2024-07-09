@@ -4,6 +4,7 @@
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::missing_docs_in_private_items)]
 #![warn(clippy::undocumented_unsafe_blocks)]
+#![allow(private_bounds)]
 #![macro_use]
 
 /// [`smallvec::smallvec`] coerced into [`SmallVec`].
@@ -55,13 +56,12 @@ fn reuse_vec<'a, T>(mut vec: Vec<&T>) -> Vec<&'a T> {
     unsafe { transmute_vec(vec) }
 }
 
-/// A seal for [`SetTrait`], avoiding foreign implementations.
+/// A sealed trait, preventing foreign implementations of our traits.
 trait Seal {}
 
 /// A trait for [`Mset`] and [`Set`].
 ///
 /// The trait is sealed so that these are the only two types that ever implement it.
-#[allow(private_bounds)]
 pub trait SetTrait:
     Seal
     + AsRef<Mset>
@@ -138,7 +138,7 @@ pub trait SetTrait:
 
     /// Von Neumann set rank.
     fn rank(&self) -> usize {
-        Levels::init(self.as_ref()).fill().rank()
+        Levels::new(self.as_ref()).rank()
     }
 
     // -------------------- Constructions -------------------- //
@@ -332,9 +332,6 @@ pub trait SetTrait:
         self < other
     }
 
-    /// A filter over elements equal to another.
-    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self>;
-
     /*
     /// A filter over mutable references to elements equal to another.
     fn filter_eq_mut<'a>(&'a mut self, other: &'a Self) -> impl Iterator<Item = &'a mut Self> {
@@ -375,7 +372,8 @@ pub trait SetTrait:
 
     /// Membership relation ∈.
     fn contains(&self, other: &Self) -> bool {
-        self.filter_eq(other).next().is_some()
+        let mut cmp = Compare::new(self.as_ref());
+        other.iter().any(|set| cmp.eq(set.as_ref()))
     }
 
     /*

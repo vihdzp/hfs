@@ -12,23 +12,11 @@ use crate::prelude::*;
 ///
 /// - Every two elements in a [`Set`] must be distinct.
 /// - Any element in a [`Set`] must be a valid [`Set`] also.
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Default, AsRef, Display, Into, PartialEq, Eq, PartialOrd)]
 #[repr(transparent)]
 pub struct Set(Mset);
 
 // -------------------- Basic traits -------------------- //
-
-impl AsRef<Mset> for Set {
-    fn as_ref(&self) -> &Mset {
-        &self.0
-    }
-}
-
-impl From<Set> for Mset {
-    fn from(set: Set) -> Self {
-        set.0
-    }
-}
 
 impl From<Set> for Vec<Set> {
     fn from(set: Set) -> Self {
@@ -37,17 +25,10 @@ impl From<Set> for Vec<Set> {
     }
 }
 
-/// Succintly writes a multiset as stored in memory.
+/// Succintly writes a set as is stored in memory.
 impl Debug for Set {
     fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{:?}", self.mset())
-    }
-}
-
-/// Displays a multiset in canonical roster notation.
-impl Display for Set {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        write!(f, "{}", self.mset())
     }
 }
 
@@ -100,17 +81,16 @@ impl Mset {
     #[must_use]
     pub fn into_set(mut self) -> Set {
         dbg!(&self);
-        let levels = Levels::init(std::ptr::from_mut(&mut self)).fill_mut();
+        let levels = Levels::new_mut(&mut self);
         let mut buf = Vec::new();
         let mut buf_pairs = Vec::new();
 
         // Safety: Since we're modifying sets from bottom to top, we can ensure our pointers are
-        // still valid, as does our cardinality function.
+        // still valid, as is our cardinality function.
         unsafe {
             levels.mod_ahu_gen(
                 0,
                 BTreeMap::new(),
-                |s| (*s.cast_const()).card(),
                 |sets, slice, &set| {
                     // Deduplicate the set.
                     dedup_by(&mut (*set).0, slice, &mut buf, &mut buf_pairs);
@@ -129,8 +109,7 @@ impl Mset {
     /// See also [`Self::into_set`].
     #[must_use]
     pub fn is_set(&self) -> bool {
-        Levels::init(self)
-            .fill()
+        Levels::new(self)
             .mod_ahu(
                 1,
                 BTreeMap::new(),
@@ -357,14 +336,13 @@ impl SetTrait for Set {
 
     fn sum_vec(vec: Vec<Self>) -> Self {
         // Union of empty collection is Ø.
-        let levels;
-        if let Some(lev) = Levels::init_iter(vec.iter().map(AsRef::as_ref)) {
-            levels = lev;
-        } else {
+        if vec.is_empty() {
             return Self::empty();
         }
 
-        let keys = levels.fill().ahu(1);
+        let keys = Levels::new_iter(vec.iter().map(AsRef::as_ref))
+            .unwrap()
+            .ahu(1);
         let mut children = Mset::sum_vec(Set::cast_vec(vec));
         // Safety: `keys` has as many elements as `children`.
         unsafe {
@@ -385,13 +363,11 @@ impl SetTrait for Set {
             1 => return Some(vec.pop().unwrap()),
             _ => {}
         }
-        let levels = Levels::init_iter(vec.iter().map(AsRef::as_ref))
-            .unwrap()
-            .fill();
 
+        let levels = Levels::new_iter(vec.iter().map(AsRef::as_ref)).unwrap();
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
-        let mut iter = unsafe { Levels::child_iter(levels.first(), &next) };
+        let mut iter = unsafe { levels.children_slice(0, &next) };
 
         // Each entry stores the index where it's found within the first set, and a boolean for
         // whether it's been seen in every other set.
@@ -477,13 +453,6 @@ impl SetTrait for Set {
     }
 
     // -------------------- Relations -------------------- //
-
-    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
-        self.0
-            .filter_eq(&other.0)
-            // Safety: we're iterating over a set.
-            .map(|s| unsafe { s.as_set_unchecked() })
-    }
 
     /*
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
@@ -762,6 +731,19 @@ impl Set {
 
         prod
     }
+}
+
+// -------------------- Functions -------------------- //
+
+impl Set {
+    /// Evaluates a function at a set. Returns `None` if the set is not in the domain.
+    ///
+    /// If `self` is not a function, the result will almost definitely be garbage.
+    pub fn eval(&self, _set: &Self) -> Option<&Self> {
+        // Set::filter_eq(self.iter().map_while(|s|s.ksplit()), set)
+
+        None
+    }
 
     /// Returns the identity function with domain `self`.
     #[must_use]
@@ -798,7 +780,7 @@ impl Set {
     /// ## Panics
     ///
     /// This function will panic if you attempt to create a set that's too large. Note that this is
-    /// quite easy to do, as |x → y| = |y|^|x|.
+    /// quite easy to do, as |x → y| = |y|<sup>|x|</sup>.
     #[must_use]
     pub fn func(self, mut other: Self) -> Self {
         let dom_card = self.card();

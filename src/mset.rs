@@ -37,9 +37,9 @@ impl FromIterator<Mset> for Mset {
     }
 }
 
-/// Succintly writes a multiset as stored in memory.
+/// Succintly writes a multiset as is stored in memory.
 impl Debug for Mset {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         f.write_char('(')?;
         for el in self {
             write!(f, "{el:?}")?;
@@ -50,7 +50,7 @@ impl Debug for Mset {
 
 /// Displays a multiset in canonical roster notation.
 impl Display for Mset {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
         write!(f, "{}", self.ahu())
     }
 }
@@ -62,7 +62,7 @@ impl PartialEq for Mset {
             return false;
         }
 
-        if let Some((fst, snd)) = Levels::eq_levels(self, other) {
+        if let Some((fst, snd)) = self.eq_levels(other) {
             fst.subset(&snd)
         } else {
             false
@@ -77,7 +77,7 @@ impl PartialOrd for Mset {
             return false;
         }
 
-        if let Some((fst, snd)) = Levels::le_levels(self, other) {
+        if let Some((fst, snd)) = self.le_levels(other) {
             fst.subset(&snd)
         } else {
             false
@@ -94,7 +94,7 @@ impl PartialOrd for Mset {
             return false;
         }
 
-        if let Some((fst, snd)) = Levels::le_levels(self, other) {
+        if let Some((fst, snd)) = self.le_levels(other) {
             fst.subset(&snd)
         } else {
             false
@@ -249,10 +249,10 @@ impl SetTrait for Mset {
             _ => {}
         }
 
-        let levels = Levels::init_iter(&vec).unwrap().fill();
+        let levels = Levels::new_iter(&vec).unwrap();
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
-        let mut iter = unsafe { Levels::child_iter(levels.first(), &next) }.enumerate();
+        let mut iter = unsafe { levels.children_slice(0, &next) }.enumerate();
 
         // Each entry stores indices to where it's found in `vec`, and a counter for how many times
         // it's been seen in every other set.
@@ -319,11 +319,11 @@ impl SetTrait for Mset {
             1 => return Some(vec.pop().unwrap()),
             _ => {}
         }
-        let levels = Levels::init_iter(&vec).unwrap().fill();
+        let levels = Levels::new_iter(&vec).unwrap();
 
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
-        let mut iter = unsafe { Levels::child_iter(levels.first(), &next) };
+        let mut iter = unsafe { levels.children_slice(0, &next) };
 
         // Each entry stores the indices where it's found within the first set, and a counter for
         // how many times it's been seen in every other set.
@@ -448,30 +448,6 @@ impl SetTrait for Mset {
 
     // -------------------- Relations -------------------- //
 
-    /// A filter over elements equal to another.
-    fn filter_eq<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a Self> {
-        // Safety: this buffer is only used to initialize the first set in `self`.
-        let mut fst = unsafe { Levels::empty() };
-        let snd = Levels::init(other).fill();
-        let mut buf = Vec::new();
-
-        // Check equality between every set in `self` and `other`.
-        self.iter().filter(move |&set| {
-            // `fst` must have exactly as many levels as `snd` of the same lengths.
-            fst.init_mut(set.as_ref());
-            while fst.step(&mut buf) {
-                if let Some(level) = snd.get(fst.rank()) {
-                    if fst.last().len() != level.len() {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-
-            fst.level_len() == snd.level_len() && fst.subset(&snd)
-        })
-    }
 
     /*
     fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
@@ -510,7 +486,8 @@ impl Mset {
     /// Count multiplicity of an element in a set.
     #[must_use]
     pub fn count(&self, other: &Self) -> usize {
-        self.filter_eq(other).count()
+        let mut cmp = Compare::new(self);
+        other.iter().filter(|set| cmp.eq(set.as_ref())).count()
     }
 
     /// Chooses some arbitrary index containing an element. Equal multisets should get assigned indices that

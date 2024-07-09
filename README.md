@@ -2,7 +2,7 @@
 
 Defines a data type for hereditarily finite sets, and many standard mathematical operations on said type. This can be considered an implementation of ZFC minus the axiom of infinity.
 
-## Intorduction
+## Introduction
 
 Within [Zermelo–Fraenkel set theory](https://en.wikipedia.org/wiki/Zermelo%E2%80%93Fraenkel_set_theory), the only kinds of mathematical objects are [sets](https://en.wikipedia.org/wiki/Set_theory). For this reason, sets can only contain more sets, which can only contain more sets, and so on. At the bottom of this recursion lies the empty set, the unique set containing nothing.
 
