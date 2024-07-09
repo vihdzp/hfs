@@ -739,6 +739,7 @@ impl Set {
     /// Evaluates a function at a set. Returns `None` if the set is not in the domain.
     ///
     /// If `self` is not a function, the result will almost definitely be garbage.
+    #[must_use]
     pub fn eval(&self, _set: &Self) -> Option<&Self> {
         // Set::filter_eq(self.iter().map_while(|s|s.ksplit()), set)
 

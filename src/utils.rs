@@ -122,6 +122,7 @@ impl<T> NestVec<T> {
     }
 
     /// Whether the nested vector is empty.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -199,6 +200,7 @@ impl<T> NestVec<T> {
 
 impl<T> NestVec<&T> {
     /// Clears a nested vector and allows it to be reused for another lifetime.
+    #[must_use]
     pub fn reuse<'a>(self) -> NestVec<&'a T> {
         let mut indices = self.indices;
         indices.clear();
@@ -292,7 +294,7 @@ impl SetPtr for &Mset {
     }
 
     unsafe fn extend(vec: &mut Vec<Self>, set: Self) {
-        vec.extend(set)
+        vec.extend(set);
     }
 }
 
@@ -303,7 +305,7 @@ impl SetPtr for *mut Mset {
     }
 
     unsafe fn extend(vec: &mut Vec<Self>, set: Self) {
-        vec.extend((*set).iter_mut().map(|s| s as *mut _))
+        vec.extend((*set).iter_mut().map(std::ptr::from_mut));
     }
 }
 
@@ -349,8 +351,9 @@ impl<T: SetPtr> NestVec<T> {
     /// ## Safety
     ///
     /// You must guarantee the type invariants for [`Levels`].
+    #[must_use]
     pub unsafe fn as_levels(&self) -> &Levels<T> {
-        &*(self as *const _ as *const _)
+        &*std::ptr::from_ref(self).cast()
     }
 
     /// Initializes a [`Levels`] from a nested vector, whose missing levels are built.
@@ -359,6 +362,7 @@ impl<T: SetPtr> NestVec<T> {
     ///
     /// The nested vector must satisfy the invariants of the type, with the only exception that the
     /// cardinalities of the last level can add up to anything.
+    #[must_use]
     pub unsafe fn build(mut self) -> Option<Levels<T>> {
         let mut buf = Vec::new();
         if self.is_empty() {
@@ -372,17 +376,21 @@ impl<T: SetPtr> NestVec<T> {
 
 impl<T: SetPtr> Levels<T> {
     /// Returns a reference to the inner nested vector.
+    #[must_use]
     pub fn nest_vec(&self) -> &NestVec<T> {
         &self.0
     }
 
     /// Returns the inner nested vector.
+    #[must_use]
     pub fn into_nest_vec(self) -> NestVec<T> {
         self.0
     }
 
     /// Returns the number of levels, minus one.
+    #[must_use]
     pub fn rank(&self) -> usize {
+        // Safety: we assume there must be at least one level.
         unsafe { self.0.level_len().unchecked_sub(1) }
     }
 
@@ -414,6 +422,7 @@ impl<'a> Levels<&'a Mset> {
     }
 
     /// Initializes a [`Levels`] from an entry for the first level.
+    #[must_use]
     pub fn new(set: &'a Mset) -> Self {
         // Safety: pointers from a reference are dereferenceable.
         unsafe { Self::new_gen(set) }
@@ -668,6 +677,7 @@ impl<'a> Levels<&'a Mset> {
         mut child_fn: F,
         level_fn: G,
     ) -> Option<Vec<U>> {
+        // Safety: pointers from a reference are dereferenceable.
         unsafe { self.mod_ahu_gen(level, sets, |i, j, k| child_fn(i, j, k), level_fn) }
     }
 

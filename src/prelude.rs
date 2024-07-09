@@ -12,7 +12,7 @@ pub use crate::{
 // Convenient imports within the crate.
 pub(crate) use crate::{
     has_consecutive,
-    utils::{btree_index, Compare, Levels, },
+    utils::{btree_index, Compare, Levels},
     SmallVec,
 };
 pub(crate) use bitvec::prelude::*;
@@ -21,6 +21,6 @@ pub(crate) use std::{
     cmp::Ordering,
     collections::{btree_map::Entry, BTreeMap},
     fmt::{Debug, Display, Formatter, Result as FmtResult, Write},
-    hint, mem, slice,ptr,
+    hint, mem, ptr, slice,
     str::FromStr,
 };
