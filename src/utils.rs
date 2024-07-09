@@ -6,8 +6,6 @@
 use crate::{prelude::*, reuse_vec};
 use std::ops::Range;
 
-
-
 /// Assigns an increasing index to a `key` added to a tree, or returns the existing index.
 pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usize {
     let len = tree.len();
@@ -347,9 +345,9 @@ impl<T: SetPtr> NestVec<T> {
     }
 
     /// Transmutes `&Self` into `&Levels<T>`.
-    /// 
+    ///
     /// ## Safety
-    /// 
+    ///
     /// You must guarantee the type invariants for [`Levels`].
     pub unsafe fn as_levels(&self) -> &Levels<T> {
         &*(self as *const _ as *const _)
@@ -411,11 +409,13 @@ impl<T: SetPtr> Levels<T> {
 impl<'a> Levels<&'a Mset> {
     /// Initializes a [`Levels`] from an iterator for the first level.
     pub fn new_iter<I: IntoIterator<Item = &'a Mset>>(iter: I) -> Option<Self> {
+        // Safety: pointers from a reference are dereferenceable.
         unsafe { Self::new_iter_gen(iter) }
     }
 
     /// Initializes a [`Levels`] from an entry for the first level.
     pub fn new(set: &'a Mset) -> Self {
+        // Safety: pointers from a reference are dereferenceable.
         unsafe { Self::new_gen(set) }
     }
 }
@@ -423,12 +423,14 @@ impl<'a> Levels<&'a Mset> {
 impl Levels<*mut Mset> {
     /// Initializes a [`Levels`] from an iterator for the first level.
     pub fn new_iter_mut<'a, I: IntoIterator<Item = &'a mut Mset>>(iter: I) -> Option<Self> {
-        unsafe { Self::new_iter_gen(iter.into_iter().map(|s| s as *mut _)) }
+        // Safety: pointers from a reference are dereferenceable.
+        unsafe { Self::new_iter_gen(iter.into_iter().map(ptr::from_mut)) }
     }
 
     /// Initializes a [`Levels`] from an entry for the first level.
     pub fn new_mut(set: &mut Mset) -> Self {
-        unsafe { Self::new_gen(set as *mut _) }
+        // Safety: pointers from a reference are dereferenceable.
+        unsafe { Self::new_gen(ptr::from_mut(set)) }
     }
 }
 
@@ -449,6 +451,7 @@ impl Mset {
 
         loop {
             // Step execution.
+            // Safety: references can always be dereferenced.
             unsafe {
                 if cont_fst {
                     cont_fst = fst.next_level(&mut buf);
@@ -472,6 +475,7 @@ impl Mset {
     }
 
     /// Initializes two [`Levels`] in the procedure to check set equality.
+    #[must_use]
     pub fn eq_levels<'a>(
         self: &'a Mset,
         other: &'a Mset,
@@ -480,6 +484,7 @@ impl Mset {
     }
 
     /// Initializes two [`Levels`] in the procedure to check subsets.
+    #[must_use]
     pub fn le_levels<'a>(
         self: &'a Mset,
         other: &'a Mset,
@@ -495,6 +500,7 @@ impl<T: SetPtr> Levels<T> {
     /// ## Safety
     ///
     /// The pointers within this level must be dereferenceable.
+    #[must_use]
     pub unsafe fn children(&self, level: usize) -> traits!(Range<usize>) {
         let mut start = 0;
         self.0.get(level).iter().map(move |set| {
@@ -712,7 +718,7 @@ impl Ahu {
     /// Finds the [`Ahu`] encodings for an iterator over multisets.
     pub fn new_iter<'a, I: IntoIterator<Item = &'a Mset>>(iter: I) -> Vec<Self> {
         /// Avoid code duplication.
-        fn new_iter_levels(levels: Levels<&Mset>) -> Vec<Ahu> {
+        fn new_iter_levels(levels: &Levels<&Mset>) -> Vec<Ahu> {
             levels
                 .mod_ahu(
                     0,
@@ -749,7 +755,7 @@ impl Ahu {
         }
 
         if let Some(levels) = Levels::new_iter(iter) {
-            new_iter_levels(levels)
+            new_iter_levels(&levels)
         } else {
             Vec::new()
         }
@@ -891,6 +897,7 @@ pub struct Compare<'a> {
 
 impl<'a> Compare<'a> {
     /// Initializes a [`Compare`] structure for the given set.
+    #[must_use]
     pub fn new(set: &'a Mset) -> Self {
         Self {
             set: Levels::new(set),
@@ -905,6 +912,7 @@ impl<'a> Compare<'a> {
         levels.push(other);
         let mut buf = reuse_vec(mem::take(&mut self.buf));
 
+        // Safety: by building our levels manually, we guarantee the type invariants.
         let res = unsafe {
             while levels.next_level(&mut buf) {
                 let idx = levels.len() - 1;
@@ -915,7 +923,7 @@ impl<'a> Compare<'a> {
                 }
             }
 
-            cmp(self.set.0.level_len(), levels.level_len()) && self.set.subset(&levels.as_levels())
+            cmp(self.set.0.level_len(), levels.level_len()) && self.set.subset(levels.as_levels())
         };
 
         self.other = levels.reuse();

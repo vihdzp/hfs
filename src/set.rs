@@ -154,7 +154,7 @@ impl Mset {
     pub fn as_set_checked(&self) -> Option<&Set> {
         if self.is_set() {
             // Safety: both types have the same layout, and we just checked the invariant.
-            Some(unsafe { &*(std::ptr::from_ref(self).cast()) })
+            Some(unsafe { &*(ptr::from_ref(self).cast()) })
         } else {
             None
         }
@@ -177,7 +177,7 @@ impl Mset {
     pub fn as_set_mut_checked(&mut self) -> Option<&mut Set> {
         if self.is_set() {
             // Safety: both types have the same layout, and we just checked the invariant.
-            Some(unsafe { &mut *(std::ptr::from_mut(self).cast()) })
+            Some(unsafe { &mut *(ptr::from_mut(self).cast()) })
         } else {
             None
         }
