@@ -190,6 +190,14 @@ impl SetTrait for Mset {
         Self(vec![self])
     }
 
+    fn into_singleton(mut self) -> Option<Self> {
+        if self.card()!=1{
+            return None;
+        }
+       
+        self.0.pop()
+    }
+
     fn insert_mut(&mut self, other: Self) {
         self.0.push(other);
     }

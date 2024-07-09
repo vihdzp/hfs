@@ -341,6 +341,10 @@ impl SetTrait for Set {
         Self(self.0.singleton())
     }
 
+    fn into_singleton(self) -> Option<Self> {
+        self.0.into_singleton().map(Self)
+    }
+
     fn insert_mut(&mut self, set: Self) {
         self.try_insert(set);
     }
@@ -620,10 +624,15 @@ impl Set {
 // -------------------- Ordered pairs -------------------- //
 
 impl Set {
-    /// Kuratowski pair (x, y).
+    /// Kuratowski pair (x, y) = {{x}, {x, y}}.
     #[must_use]
     pub fn kpair(self, other: Self) -> Self {
         self.clone().singleton().pair(self.pair(other))
+    }
+
+    /// A Kuratowski pair (x, x) = {{x}}.
+    pub fn id_kpair(self) -> Self {
+        self.singleton().singleton()
     }
 
     /// Decomposes a Kuratowski pair.
@@ -751,12 +760,98 @@ impl Set {
         prod
     }
 
-    /*/// Set of functions between two sets.
-    pub fn func(self, other: Self) -> Self {
-        let mut func = Self::with_capacity(other.card().pow(self.card() as u32));
+    /// Returns the identity function with domain `self`.
+    pub fn id_func(self) -> Self {
+        let res: Mset = self.into_iter().map(|s| s.id_kpair().0).collect();
+        // Safety: all elements were originally sets and are distinct.
+        unsafe { res.into_set_unchecked() }
+    }
 
-        // The indices in `other` from which we grab the maps for `self`.
-        let mut indices = vec![0; other.card()];
-        todo!()
-    }*/
+    /// Returns the constant function with domain `self` and value `cst`.
+    pub fn const_func(self, cst: Set) -> Self {
+        let len = self.card();
+        let mut func = Set::with_capacity(len);
+        let mut vec = self.into_vec();
+
+        // Safety: all these pairs are distinct.
+        unsafe {
+            for set in vec.drain(1..) {
+                func.insert_mut_unchecked(set.kpair(cst.clone()));
+            }
+
+            // Reuse `cst`.
+            if let Some(fst) = vec.pop() {
+                func.insert_mut_unchecked(fst.kpair(cst));
+            }
+        }
+
+        func
+    }
+
+    /// Set of functions between two sets.
+    pub fn func(self, mut other: Self) -> Self {
+        let dom_card = self.card();
+        let cod_card = other.card();
+
+        // The empty function is the only function with domain Ø.
+        if dom_card == 0 {
+            return Self::empty().singleton();
+        }
+
+        match cod_card {
+            // No other function has codomain Ø.
+            0 => return Self::empty(),
+            // There is only one function into a singleton.
+            1 => return Self::const_func(self, other.into_singleton().unwrap()).singleton(),
+            _ => {}
+        }
+
+        let size = cod_card.pow(dom_card as u32);
+        let mut funcs = Self::with_capacity(size);
+
+        // The indices in `other` into which we map the elements in `self`.
+        let mut indices = vec![0; dom_card];
+        for _ in 1..size {
+            // Update indices.
+            let mut idx = dom_card - 1;
+            loop {
+                // Safety: our indices essentially function as a base `cod_card` expansion. We exit
+                // the outer loop just as all values are maxed out.
+                unsafe {
+                    let index = indices.get_unchecked_mut(idx);
+                    *index += 1;
+                    if *index == cod_card {
+                        *index = 0;
+                    } else {
+                        break;
+                    }
+
+                    idx = idx.unchecked_sub(1);
+                }
+            }
+
+            let mut func = Self::with_capacity(dom_card);
+            unsafe {
+                for (i, &j) in indices.iter().enumerate() {
+                    func.insert_mut_unchecked(
+                        self.as_slice()
+                            .get_unchecked(i)
+                            .clone()
+                            .kpair(other.as_slice().get_unchecked(j).clone()),
+                    )
+                }
+
+                funcs.insert_mut_unchecked(func);
+            }
+        }
+
+        // Reuse `self`.
+        unsafe {
+            funcs.insert_mut_unchecked(Self::const_func(
+                self,
+                mem::take(other.as_mut_slice().get_unchecked_mut(0)),
+            ));
+        }
+        funcs
+    }
 }

@@ -156,6 +156,35 @@ pub trait SetTrait:
     #[must_use]
     fn singleton(self) -> Self;
 
+    /// Gets the element out of a singleton set.
+    ///
+    ///  Returns `None` if this is not a singleton.
+    fn into_singleton(self) -> Option<Self>;
+
+    /// References the element in a singleton set.
+    ///
+    /// Returns `None` if this is not a singleton.
+    fn as_singleton(&self) -> Option<&Self> {
+        if self.card() != 1 {
+            None
+        } else {
+            self.as_slice().first()
+        }
+    }
+
+    /// Mutably references the element in a singleton set.
+    ///
+    /// Returns `None` if this is not a singleton.
+    fn as_singleton_mut(&mut self) -> Option<&mut Self> {
+        if self.card() != 1 {
+            None
+        } else {
+            // Safety: it's not a problem if this element is modified, as a singleton can never have
+            // duplicate elements to begin with.
+            unsafe { self._as_mut_slice().first_mut() }
+        }
+    }
+
     /// In-place set insertion x + {y}.
     fn insert_mut(&mut self, set: Self);
 
