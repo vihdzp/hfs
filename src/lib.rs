@@ -379,6 +379,7 @@ pub trait SetTrait:
         self.filter_eq(other).next().is_some()
     }
 
+    /*
     /// Checks whether two sets are disjoint.
     fn disjoint(&self, other: &Self) -> bool {
         Self::disjoint_pairwise([self, other])
@@ -393,4 +394,5 @@ pub trait SetTrait:
     ///
     /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_iter`].
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
+    */
 }

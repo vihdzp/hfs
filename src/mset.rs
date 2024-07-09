@@ -454,6 +454,7 @@ impl SetTrait for Mset {
         })
     }
 
+    /*
     fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
         todo!()
     }
@@ -461,6 +462,7 @@ impl SetTrait for Mset {
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
         todo!()
     }
+    */
 }
 
 // -------------------- Other -------------------- //

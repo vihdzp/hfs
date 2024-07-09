@@ -485,6 +485,7 @@ impl SetTrait for Set {
             .map(|s| unsafe { s.as_set_unchecked() })
     }
 
+    /*
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
         // Empty families are disjoint.
         let levels;
@@ -546,6 +547,7 @@ impl SetTrait for Set {
     fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
         todo!()
     }
+    */
 }
 
 impl Set {
