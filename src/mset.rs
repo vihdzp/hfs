@@ -57,6 +57,11 @@ impl Display for Mset {
 
 impl PartialEq for Mset {
     fn eq(&self, other: &Self) -> bool {
+        // Don't even allocate if not needed.
+        if self.card() != other.card() {
+            return false;
+        }
+
         if let Some((fst, snd)) = Levels::eq_levels(self, other) {
             fst.subset(&snd)
         } else {
@@ -67,6 +72,11 @@ impl PartialEq for Mset {
 
 impl PartialOrd for Mset {
     fn le(&self, other: &Self) -> bool {
+        // Don't even allocate if not needed.
+        if self.card() > other.card() {
+            return false;
+        }
+
         if let Some((fst, snd)) = Levels::le_levels(self, other) {
             fst.subset(&snd)
         } else {
@@ -79,7 +89,16 @@ impl PartialOrd for Mset {
     }
 
     fn lt(&self, other: &Self) -> bool {
-        self.card() < other.card() && self.le(other)
+        // Don't even allocate if not needed.
+        if self.card() < other.card() {
+            return false;
+        }
+
+        if let Some((fst, snd)) = Levels::le_levels(self, other) {
+            fst.subset(&snd)
+        } else {
+            false
+        }
     }
 
     fn gt(&self, other: &Self) -> bool {
