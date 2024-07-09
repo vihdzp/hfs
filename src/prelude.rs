@@ -11,7 +11,7 @@ pub use crate::{
 
 // Convenient imports within the crate.
 pub(crate) use crate::{
-    has_consecutive, smallvec,
+    has_consecutive,
     utils::{btree_index, Levels},
     SmallVec,
 };

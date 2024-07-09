@@ -1,10 +1,21 @@
-//! # Hereditarily finite sets
-
+#![doc = include_str!("README.md")]
 #![warn(clippy::pedantic)]
 #![warn(missing_docs)]
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::missing_docs_in_private_items)]
 #![warn(clippy::undocumented_unsafe_blocks)]
+#![macro_use]
+
+/// [`smallvec::smallvec`] coerced into [`SmallVec`].
+macro_rules! smallvec {
+    ($elem: expr; $n: expr) => (
+        SmallVec::from_elem($elem, $n)
+    );
+    ($($x: expr), *$(,)*) => ({
+        let vec: SmallVec<_> = smallvec::smallvec![$($x,)*];
+        vec
+    });
+}
 
 pub mod class;
 pub mod mset;
@@ -17,18 +28,6 @@ use prelude::*;
 
 /// Small vector.
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
-
-/// [`smallvec::smallvec`] coerced into [`SmallVec`].
-#[macro_export]
-macro_rules! smallvec {
-    ($elem: expr; $n: expr) => (
-        SmallVec::from_elem($elem, $n)
-    );
-    ($($x: expr), *$(,)*) => ({
-        let vec: SmallVec<_> = smallvec::smallvec![$($x,)*];
-        vec
-    });
-}
 
 /// Whether a slice has consecutive elements.
 fn has_consecutive<T: PartialEq>(slice: &[T]) -> bool {

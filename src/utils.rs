@@ -262,8 +262,6 @@ impl<'a> Levels<&'a Mset> {
     }
 
     /// Builds the next level from the last. Returns whether this level was nonempty.
-    ///
-    /// See [`Self::step_gen`].
     pub fn step(&mut self, buf: &mut Vec<&'a Mset>) -> bool {
         self.step_gen(Vec::extend, buf)
     }
@@ -598,8 +596,6 @@ impl<'a> Levels<&'a Mset> {
     /// Transforms some set of values assigned to the children of a level, into values for the
     /// level, via a specified function. The algorithm stops and returns false if `None` is returned
     /// by said function.
-    ///
-    /// See [`Self::ahu_gen`].
     pub fn mod_ahu<U, V, F: FnMut(&mut V, &mut [U], &Mset) -> Option<U>, G: FnMut(&mut V)>(
         &self,
         level: usize,
