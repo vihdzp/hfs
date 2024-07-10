@@ -48,4 +48,4 @@ My main motive in creating this crate was to showcase the absurdity of ZFC. By t
 
 You can use this crate to directly play around with sets like these, instead of just having them be some mathematical abstraction.
 
-Likewise, this codebase serves as a defense of finitism. It's easy to dismiss finitist mathematics as some crackpot theory that doesn't believe in the existence of the set of counting numbers. But really, there's still a lot that can be done within the finite confines of a computer.
+Likewise, this codebase serves as a defense of finitism. It's easy to dismiss its entire philosophy as some crackpot theory that doesn't believe in the existence of the set of counting numbers. But really, there's still a lot that can be done within the finite confines of a computer.
