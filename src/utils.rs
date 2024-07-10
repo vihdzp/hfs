@@ -934,6 +934,7 @@ impl<'a> Compare<'a> {
     }
 
     /// Returns the cardinality of the stored set.
+    #[must_use]
     pub fn card(&self) -> usize {
         self.set.0.get(1).len()
     }

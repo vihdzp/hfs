@@ -334,7 +334,7 @@ impl SetTrait for Set {
     }
 
     fn count(&self, other: &Self) -> usize {
-        self.contains(other) as usize
+        usize::from(self.contains(other))
     }
 
     fn sum_vec(vec: Vec<Self>) -> Self {
