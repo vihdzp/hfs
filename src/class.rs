@@ -248,6 +248,8 @@ naturals!(Nat, nat, "von Neumann");
 naturals!(Zermelo, zermelo, "Zermelo");
 
 /// The universal class.
+///
+/// Theoretically, over infinite time, this will output every hereditarily finite set exactly once.
 #[derive(Clone, Default)]
 pub struct Univ(Vec<Set>);
 
@@ -351,21 +353,21 @@ impl Class {
         unsafe { Self::new_unchecked(std::iter::empty()) }
     }
 
-    /// The universal class.
+    /// The universal class, defined via [`Univ`].
     #[must_use]
     pub fn univ() -> Self {
         // Safety: this iterator has no duplicates.
         unsafe { Self::new_unchecked(Univ::new()) }
     }
 
-    /// The class of naturals ℕ.
+    /// The class of naturals ℕ, defined via [`Nat`].
     #[must_use]
     pub fn nat() -> Self {
         // Safety: this iterator has no duplicates.
         unsafe { Self::new_unchecked(Nat::new()) }
     }
 
-    /// The class of Zermelo naturals ℕ.
+    /// The class of Zermelo naturals ℕ, defined via [`Zermelo`].
     #[must_use]
     pub fn zermelo() -> Self {
         // Safety: this iterator has no duplicates.

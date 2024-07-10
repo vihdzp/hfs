@@ -482,7 +482,7 @@ impl SetTrait for Mset {
     }
 }
 
-// -------------------- Other -------------------- //
+// -------------------- Mset specific -------------------- //
 
 impl Mset {
     /// The set as a mutable slice.

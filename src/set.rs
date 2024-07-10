@@ -549,6 +549,15 @@ impl Set {
         &mut self.0 .0
     }
 
+    /// Builds the set from a vector of sets. Does not deduplicate the set.
+    ///
+    /// ## Safety
+    ///
+    /// You must ensure any two sets in the vector are distinct.
+    pub unsafe fn from_vec_unchecked(vec: Vec<Self>) -> Self {
+        Self(Mset::from_vec(Set::cast_vec(vec)))
+    }
+
     /// Mutably iterate over the elements of the set.
     ///
     /// ## Safety
@@ -866,6 +875,37 @@ impl Set {
 // -------------------- Functions -------------------- //
 
 impl Set {
+    /// Generalizes [`Self::dom`] and [`Self::range`].
+    fn dom_range<F: FnMut(Kpair<Self>) -> Self>(self, mut entry: F) -> Option<Vec<Self>> {
+        let mut vec = self.into_vec();
+        for set in &mut vec {
+            let s = mem::take(set);
+            *set = entry(s.into_ksplit()?);
+        }
+        Some(vec)
+    }
+
+    /// The domain of a relation.
+    pub fn dom(self) -> Option<Self> {
+        self.dom_range(Kpair::into_fst).map(Self::from_vec)
+    }
+
+    /// The range of a relation or function.
+    pub fn range(self) -> Option<Self> {
+        self.dom_range(Kpair::into_snd).map(Self::from_vec)
+    }
+
+    /// The domain of a function. This optimizes over [`Self::dom`] by assuming that every value in
+    /// the domain is mapped to a unique output.
+    ///
+    /// ## Safety
+    ///
+    /// You must guarantee that, if `self` is a relation, then it is also a valid function.
+    pub unsafe fn dom_func(self) -> Option<Self> {
+        self.dom_range(Kpair::into_fst)
+            .map(|vec| Self::from_vec_unchecked(vec))
+    }
+
     /// Evaluates a function at a set. Returns `None` if the set is not in the domain.
     ///
     /// If `self` is not a function, the result will almost definitely be garbage.
@@ -901,9 +941,8 @@ impl Set {
     /// Returns the identity function with domain `self`.
     #[must_use]
     pub fn id_func(self) -> Self {
-        let res: Mset = self.into_iter().map(|s| s.id_kpair().0).collect();
         // Safety: all elements were originally sets and are distinct.
-        unsafe { res.into_set_unchecked() }
+        unsafe { Self::from_vec_unchecked(self.into_iter().map(|s| s.id_kpair()).collect()) }
     }
 
     /// Returns the constant function with domain `self` and value `cst`.
@@ -958,7 +997,6 @@ impl Set {
             _ => {}
         }
 
-        #[allow(clippy::cast_possible_truncation)]
         let size = cod_card.pow(dom_card.try_into().expect("domain too large"));
         let mut funcs = Self::with_capacity(size);
 
