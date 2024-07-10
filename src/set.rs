@@ -598,16 +598,33 @@ impl Set {
 // -------------------- Ordered pairs -------------------- //
 
 impl Set {
-    /// Kuratowski pair (x, y) = {{x}, {x, y}}.
-    #[must_use]
-    pub fn kpair(self, other: Self) -> Self {
-        self.clone().singleton().pair(self.pair(other))
-    }
-
     /// A Kuratowski pair (x, x) = {{x}}.
     #[must_use]
     pub fn id_kpair(self) -> Self {
         self.singleton().singleton()
+    }
+
+    /// Kuratowski pair (x, y) = {{x}, {x, y}}. Does not check whether x ≠ y.
+    ///
+    /// ## Safety
+    ///
+    /// You must ensure that both sets are distinct.
+    #[must_use]
+    pub unsafe fn kpair_unchecked(self, other: Self) -> Self {
+        let (x, y) = (self.0, other.0);
+        // Safety: if x ≠ y, then {x} ≠ {x, y}.
+        x.clone().singleton().pair(x.pair(y)).into_set_unchecked()
+    }
+
+    /// Kuratowski pair (x, y) = {{x}, {x, y}}.
+    #[must_use]
+    pub fn kpair(self, other: Self) -> Self {
+        if self == other {
+            self.id_kpair()
+        } else {
+            // Safety: we just performed the relevant check.
+            unsafe { self.kpair_unchecked(other) }
+        }
     }
 
     /// Decomposes a Kuratowski pair.
@@ -743,10 +760,15 @@ impl Set {
     ///
     /// If `self` is not a function, the result will almost definitely be garbage.
     #[must_use]
-    pub fn eval(&self, _set: &Self) -> Option<&Self> {
-        // Set::filter_eq(self.iter().map_while(|s|s.ksplit()), set)
-
-        None
+    pub fn eval(&self, set: &Self) -> Option<&Self> {
+        let mut cmp = Compare::new(set.mset());
+        self.iter().map_while(|el| el.ksplit()).find_map(|(a, b)| {
+            if cmp.eq(a.mset()) {
+                Some(b)
+            } else {
+                None
+            }
+        })
     }
 
     /// Returns the identity function with domain `self`.

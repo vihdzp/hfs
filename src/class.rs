@@ -28,19 +28,17 @@ impl<I: Iterator<Item = Set>> Dedup<I> {
 impl<I: Iterator<Item = Set>> Iterator for Dedup<I> {
     type Item = Set;
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(set) = self.iter.next() {
-                if !self.output.contains(&set) {
-                    // Safety: we just performed the relevant check.
-                    unsafe {
-                        self.output.insert_mut_unchecked(set.clone());
-                    }
-                    return Some(set);
+        for set in self.iter.by_ref() {
+            if !self.output.contains(&set) {
+                // Safety: we just performed the relevant check.
+                unsafe {
+                    self.output.insert_mut_unchecked(set.clone());
                 }
-            } else {
-                return None;
+                return Some(set);
             }
         }
+
+        None
     }
 }
 
