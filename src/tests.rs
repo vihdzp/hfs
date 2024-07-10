@@ -335,7 +335,9 @@ fn set_kpair() {
             );
 
             assert_eq!(
-                pair.into_ksplit().expect("could not split pair").pair(),
+                pair.into_ksplit()
+                    .expect("could not split pair")
+                    .into_pair(),
                 (set_1.clone(), set_2),
                 "kpair fail at {i}, {j}: pair not split correctly"
             );

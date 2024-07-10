@@ -603,13 +603,7 @@ impl Set {
     /// elements of the set.
     #[must_use]
     pub unsafe fn replace_unchecked<F: FnMut(&Self) -> Self>(&self, mut func: F) -> Self {
-        Self(
-            self.0
-                .iter()
-                .map(|set| func(set.as_set_unchecked()).0)
-                .collect::<Vec<_>>()
-                .into(),
-        )
+        Self(self.0.replace(|set| func(set.as_set_unchecked()).0))
     }
 
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
@@ -621,13 +615,7 @@ impl Set {
     /// elements of the set.
     #[must_use]
     pub unsafe fn into_replace_unchecked<F: FnMut(Self) -> Self>(self, mut func: F) -> Self {
-        Self(
-            self.0
-                .into_iter()
-                .map(|set| func(set.into_set_unchecked()).0)
-                .collect::<Vec<_>>()
-                .into(),
-        )
+        Self(self.0.into_replace(|set| func(set.into_set_unchecked()).0))
     }
 }
 
@@ -658,19 +646,6 @@ impl<T> Kpair<T> {
         }
     }
 
-    /// Returns a reference to the first entry.
-    pub const fn fst(&self) -> &T {
-        match self {
-            Self::Same(x) | Self::Distinct(x, _) => x,
-        }
-    }
-
-    /// Returns a reference to the second entry.
-    pub const fn snd(&self) -> &T {
-        match self {
-            Self::Same(x) | Self::Distinct(_, x) => x,
-        }
-    }
 
     /// Returns the first entry.
     pub fn into_fst(self) -> T {
@@ -681,6 +656,20 @@ impl<T> Kpair<T> {
 
     /// Returns the second entry.
     pub fn into_snd(self) -> T {
+        match self {
+            Self::Same(x) | Self::Distinct(_, x) => x,
+        }
+    }
+
+    /// Returns a reference to the first entry.
+    pub const fn fst(&self) -> &T {
+        match self {
+            Self::Same(x) | Self::Distinct(x, _) => x,
+        }
+    }
+
+    /// Returns a reference to the second entry.
+    pub const fn snd(&self) -> &T {
         match self {
             Self::Same(x) | Self::Distinct(_, x) => x,
         }
@@ -838,13 +827,13 @@ impl Set {
     #[must_use]
     pub fn prod(mut self, mut other: Self) -> Self {
         // Ensure `self` is the smallest set.
-        let c1 = self.card();
-        let c2 = other.card();
-        if c2 < c1 {
+        let a = self.card();
+        let b = other.card();
+        if b < a {
             mem::swap(&mut other, &mut self);
         }
 
-        let mut prod = Self::with_capacity(c1 * c2);
+        let mut prod = Self::with_capacity(a * b);
         // Safety: these are ordered pairs of distinct pairs of elements.
         unsafe {
             for (i, fst) in self.iter().enumerate() {
