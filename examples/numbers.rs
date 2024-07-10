@@ -2,7 +2,7 @@
 //! ℕ², and likewise, rationals ℚ are formed from equivalence classes in ℤ × ℕ⁺. These are
 //! unfortunately infinite sets, so we're forced to come up with alternate ways to model these
 //! collections.
-//! 
+//!
 //! By doing this, we can then model real numbers as Dedekind cuts in ℚ.
 
 use hfs::prelude::*;
@@ -26,10 +26,6 @@ fn int(n: isize) -> Set {
     }
 }
 
-/// An iterator over integers.
-#[derive(Default)]
-struct Int(usize);
-
 /// Defines a bijection between naturals and integers.
 fn nat_to_int(n: usize) -> isize {
     let x = ((n + 1) / 2) as isize;
@@ -40,21 +36,11 @@ fn nat_to_int(n: usize) -> isize {
     }
 }
 
-impl Iterator for Int {
-    type Item = Set;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let res = int(nat_to_int(self.0));
-        self.0 += 1;
-        Some(res)
-    }
-}
-
 /// The class of integers.
 #[allow(dead_code)]
 fn class_int() -> Class {
     // Safety: this iterator has no duplicates.
-    unsafe { Class::new_unchecked(Int::default()) }
+    unsafe { Class::new_unchecked((0..).map(|n| int(nat_to_int(n)))) }
 }
 
 /// A rational m&frasl;n is a pair of an integer and a natural number, representing the fraction in
@@ -87,38 +73,19 @@ fn rat(m: isize, n: usize) -> Option<Set> {
     Some(unsafe { int(m).kpair_unchecked(Set::nat(n)) })
 }
 
-/// An iterator over rationals.
-#[derive(Default)]
-struct Rat(usize, usize);
-
-impl Iterator for Rat {
-    type Item = Set;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let x = nat_to_int(self.0);
-            let y = self.1 + 1;
-
-            // Enumerate by diagonals.
-            if self.1 == 0 {
-                self.1 = self.0 + 1;
-                self.0 = 0;
-            } else {
-                self.1 -= 1;
-                self.0 += 1;
-            }
-
-            if gcd::binary_usize(x.unsigned_abs(), y) == 1 {
-                return Some(rat(x, y).unwrap());
-            }
-        }
-    }
-}
-
 /// The class of rationals.
 fn class_rat() -> Class {
     // Safety: this iterator has no duplicates.
-    unsafe { Class::new_unchecked(Rat::default()) }
+    unsafe {
+        Class::new_unchecked(class::Product::new(0.., 1..).filter_map(|(m, n)| {
+            let m = nat_to_int(m);
+            if gcd::binary_usize(m.unsigned_abs(), n) == 1 {
+                rat(m, n)
+            } else {
+                None
+            }
+        }))
+    }
 }
 
 /// Encodes a "real" number as a Dedekind cut.

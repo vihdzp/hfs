@@ -69,6 +69,7 @@ impl<I: Iterator> Iterator for Interleave<I> {
         // Attempts to get an element from each iterator.
         while !self.iters.is_empty() {
             // Wrap index around.
+            debug_assert!(self.index <= self.iters.len());
             if self.index >= self.iters.len() {
                 self.index = 0;
             }
@@ -85,6 +86,126 @@ impl<I: Iterator> Iterator for Interleave<I> {
         }
 
         None
+    }
+}
+
+/// Outputs all pairs of elements from two iterators.
+///
+/// We make no guarantee on the order in which elements are returned, other than the fact that each
+/// iterator will be called until it returns `None`, even in the presence of infinite iterators.
+pub struct Product<I: Iterator, J: Iterator> {
+    /// The first iterator.
+    fst: I,
+    /// The second iterator
+    snd: J,
+    /// The list of previous values from the first iterator.
+    fst_values: Vec<I::Item>,
+    /// The list of previous values from the second iterator.
+    snd_values: Vec<J::Item>,
+
+    /// A value determining which elements to grab for the next returned pair.
+    index: usize,
+}
+
+impl<I: Iterator, J: Iterator> Product<I, J>
+where
+    I::Item: Clone,
+    J::Item: Clone,
+{
+    /// Initializes a new iterator over pairs.
+    pub const fn new(fst: I, snd: J) -> Self {
+        Self {
+            fst,
+            snd,
+            fst_values: Vec::new(),
+            snd_values: Vec::new(),
+            index: 0,
+        }
+    }
+}
+
+impl<I: Iterator, J: Iterator> Iterator for Product<I, J>
+where
+    I::Item: Clone,
+    J::Item: Clone,
+{
+    type Item = (I::Item, J::Item);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let a = self.fst_values.len();
+        let b = self.snd_values.len();
+        let idx = self.index;
+
+        // We're adding elements where the first entry comes later in its iterator.
+        Some(if a > b {
+            // We added all we could, switch mode.
+            if idx >= b {
+                debug_assert_eq!(idx, b);
+                if let Some(snd_value) = self.snd.next() {
+                    self.snd_values.push(snd_value.clone());
+                    self.index = 1;
+                    (self.fst_values[0].clone(), snd_value)
+                }
+                // The second iterator ran out.
+                else {
+                    let fst_value = self.fst.next()?;
+                    self.fst_values.push(fst_value.clone());
+                    self.index = 1;
+                    // Safety: We could only have added an element to the first list if we also
+                    // added one to the second list.
+                    unsafe {
+                        (
+                            fst_value,
+                            self.snd_values.first().unwrap_unchecked().clone(),
+                        )
+                    }
+                }
+            } else {
+                // Add next element.
+                self.index += 1;
+                (
+                    self.fst_values.last().unwrap().clone(),
+                    self.snd_values[idx].clone(),
+                )
+            }
+        }
+        // We're adding elements where the second entry comes later in its iterator.
+        else {
+            // We added all we could, switch mode.
+            if idx >= a {
+                debug_assert_eq!(idx, a);
+                if let Some(fst_value) = self.fst.next() {
+                    if let Some(snd_value) = self.snd_values.first() {
+                        self.fst_values.push(fst_value.clone());
+                        self.index = 1;
+                        (fst_value, snd_value.clone())
+                    }
+                    // Special case: the very first value returned by the iterator.
+                    else {
+                        let snd_value = self.snd.next()?;
+                        self.fst_values.push(fst_value.clone());
+                        self.snd_values.push(snd_value.clone());
+                        self.index = 1;
+                        (fst_value, snd_value)
+                    }
+                }
+                // The first iterator ran out.
+                else {
+                    let fst_value = self.fst_values.first()?;
+                    let snd_value = self.snd.next()?;
+                    self.snd_values.push(snd_value.clone());
+                    self.index = 1;
+                    (fst_value.clone(), snd_value)
+                }
+            } else {
+                // Add next element.
+                self.index += 1;
+                (
+                    self.fst_values[idx].clone(),
+                    self.snd_values.last().unwrap().clone(),
+                )
+            }
+        })
     }
 }
 
@@ -278,5 +399,19 @@ impl Class {
     #[must_use]
     pub fn union(self, other: Self) -> Self {
         Self::union_vec(vec![self, other])
+    }
+
+    /// Cartesian product of classes.
+    ///
+    /// This internally uses [`Product`] to get the elements out of each set.
+    #[must_use]
+    pub fn prod(self, other: Self) -> Self {
+        // Safety: the pairs of sets returned by `Product` are unique, and unique pairs are mapped
+        // to unique sets by `kpair`.
+        unsafe {
+            Self::new_unchecked(
+                Product::new(self.into_iter(), other.into_iter()).map(|(x, y)| x.kpair(y)),
+            )
+        }
     }
 }
