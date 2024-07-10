@@ -90,7 +90,7 @@ impl PartialOrd for Mset {
 
     fn lt(&self, other: &Self) -> bool {
         // Don't even allocate if not needed.
-        if self.card() < other.card() {
+        if self.card() >= other.card() {
             return false;
         }
 

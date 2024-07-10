@@ -372,8 +372,8 @@ pub trait SetTrait:
 
     /// Membership relation ∈.
     fn contains(&self, other: &Self) -> bool {
-        let mut cmp = Compare::new(self.as_ref());
-        other.iter().any(|set| cmp.eq(set.as_ref()))
+        let mut cmp = Compare::new(other.as_ref());
+        self.iter().any(|set| cmp.eq(set.as_ref()))
     }
 
     /*

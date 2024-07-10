@@ -80,7 +80,6 @@ impl Mset {
     /// Flattens a multiset into a set hereditarily.
     #[must_use]
     pub fn into_set(mut self) -> Set {
-        dbg!(&self);
         let levels = Levels::new_mut(&mut self);
         let mut buf = Vec::new();
         let mut buf_pairs = Vec::new();

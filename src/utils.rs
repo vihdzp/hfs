@@ -136,6 +136,8 @@ impl<T> NestVec<T> {
     }
 
     /// Gets the slice corresponding to a given level.
+    ///
+    /// Returns the empty slice for any missing levels.
     #[must_use]
     pub fn get(&self, level: usize) -> &[T] {
         self.get_range(level)
@@ -145,6 +147,8 @@ impl<T> NestVec<T> {
     }
 
     /// Gets the mutable slice corresponding to a given level.
+    ///
+    /// Returns the empty slice for any missing levels.
     pub fn get_mut(&mut self, level: usize) -> &mut [T] {
         self.get_range(level)
             // Safety: our ranges are always valid for indexing.
@@ -483,7 +487,8 @@ impl Mset {
         }
     }
 
-    /// Initializes two [`Levels`] in the procedure to check set equality.
+    /// Initializes two [`Levels`] in the procedure to check set equality. Returns `None` if we can
+    /// prove that they're not equal before the structures are fully built.
     #[must_use]
     pub fn eq_levels<'a>(
         self: &'a Mset,
@@ -492,7 +497,8 @@ impl Mset {
         self.both_levels(other, |fst, snd| fst.len() == snd.len())
     }
 
-    /// Initializes two [`Levels`] in the procedure to check subsets.
+    /// Initializes two [`Levels`] in the procedure to check subsets. Returns `None` if we can
+    /// prove that they're not subsets before the structures are fully built.
     #[must_use]
     pub fn le_levels<'a>(
         self: &'a Mset,
@@ -586,6 +592,8 @@ impl<T: SetPtr> Levels<T> {
     ) -> bool {
         cur.clear();
         let lev = self.0.get(level);
+        // Safety: the indexed slice contains as many elements as required due to the invariant on
+        // `self`.
         for (i, slice) in self.children_mut_slice(level, next).enumerate() {
             if let Some(idx) = child_fn(slice, lev.get_unchecked(i)) {
                 cur.push(idx);
@@ -822,15 +830,13 @@ impl<'a> Levels<&'a Mset> {
     /// instance, if some level of `self` has more elements than the corresponding level of `other`,
     /// it can't be a subset, and we don't need to build the rest of the levels. Similarly, if all
     /// levels have the same number of elements, the subset relation actually implies equality.
-    ///
-    /// Calling this function implies these basic tests have already been performed. In particular,
-    /// the function does not consider the case where `self` has a larger rank than `other`.
     #[must_use]
-    pub(crate) fn subset(&self, other: &Self) -> bool {
-        debug_assert!(
-            self.0.level_len() <= other.0.level_len(),
-            "this check should have been performed beforehand"
-        );
+    pub fn subset(&self, other: &Self) -> bool {
+        // This check is often redundant, but it guarantees correctness of the function in all
+        // cases, and it's not like it's a bottleneck.
+        if self.0.level_len() > other.0.level_len() {
+            return false;
+        }
 
         let mut cur = Vec::new();
         let mut fst_next = Vec::new();
@@ -895,11 +901,20 @@ impl<'a> Levels<&'a Mset> {
     }
 }
 
-/// An auxiliary structure to compare a given set to multiple others.
+/// An auxiliary structure to efficiently compare a given set to multiple others.
+///
+/// In order to test equality between two sets, we build a [`Levels`] structure for each. In the
+/// case where we need to compare multiple sets with a single one, this avoids recomputation of the
+/// first [`Levels`] structure, and re-allocation of the buffer for the second one.
+///
+/// If you only need to compare two sets, use [`Mset::eq_levels`] or [`Mset::le_levels`] instead.
 pub struct Compare<'a> {
     /// The set to compare others against.
     set: Levels<&'a Mset>,
     /// A structure in which we store the [`Levels`] for the other sets. The allocation gets reused.
+    ///
+    /// We can't store `Levels<&'a Mset>` directly, as having an empty allocation would break the
+    /// type invariants.
     other: NestVec<&'a Mset>,
     /// A buffer for calculations we reuse.
     buf: Vec<&'a Mset>,
@@ -919,8 +934,8 @@ impl<'a> Compare<'a> {
     /// Combines the functions [`Self::eq`] and [`Self::le`].
     fn cmp<F: FnMut(usize, usize) -> bool>(&mut self, other: &Mset, mut cmp: F) -> bool {
         let mut levels = mem::take(&mut self.other).reuse();
-        levels.push(other);
         let mut buf = reuse_vec(mem::take(&mut self.buf));
+        levels.push(other);
 
         // Safety: by building our levels manually, we guarantee the type invariants.
         let res = unsafe {
@@ -933,7 +948,7 @@ impl<'a> Compare<'a> {
                 }
             }
 
-            cmp(self.set.0.level_len(), levels.level_len()) && self.set.subset(levels.as_levels())
+            self.set.subset(levels.as_levels())
         };
 
         self.other = levels.reuse();
@@ -945,9 +960,26 @@ impl<'a> Compare<'a> {
     pub fn eq(&mut self, other: &Mset) -> bool {
         self.cmp(other, |x, y| x == y)
     }
+    /// Tests inequality with another set.
+    pub fn ne(&mut self, other: &Mset) -> bool {
+        !self.eq(other)
+    }
 
     /// Tests subset with another set.
     pub fn le(&mut self, other: &Mset) -> bool {
         self.cmp(other, |x, y| x <= y)
+    }
+    /// Tests strict subset with another set.
+    pub fn gt(&mut self, other: &Mset) -> bool {
+        !self.le(other)
+    }
+
+    /// Tests strict subset with another set.
+    pub fn lt(&mut self, other: &Mset) -> bool {
+        self.set.nest_vec().get(1).len() < other.card() && self.le(other)
+    }
+    /// Tests  subset with another set.
+    pub fn ge(&mut self, other: &Mset) -> bool {
+        !self.lt(other)
     }
 }
