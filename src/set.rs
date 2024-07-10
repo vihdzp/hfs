@@ -949,8 +949,7 @@ impl Set {
     /// Returns the constant function with domain `self` and value `cst`.
     #[must_use]
     pub fn const_func(self, cst: Set) -> Self {
-        let len = self.card();
-        let mut func = Set::with_capacity(len);
+        let mut func = Set::with_capacity(self.card());
         let mut vec = self.into_vec();
 
         // Safety: all these pairs are distinct.
@@ -1042,10 +1041,9 @@ impl Set {
         // Reuse `self`.
         // Safety: same as above.
         unsafe {
-            funcs.insert_mut_unchecked(Self::const_func(
-                self,
-                mem::take(other.as_mut_slice().get_unchecked_mut(0)),
-            ));
+            funcs.insert_mut_unchecked(
+                self.const_func(mem::take(other.as_mut_slice().get_unchecked_mut(0))),
+            );
         }
         funcs
     }
