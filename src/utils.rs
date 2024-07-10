@@ -933,8 +933,13 @@ impl<'a> Compare<'a> {
         }
     }
 
+    /// Returns the cardinality of the stored set.
+    pub fn card(&self) -> usize {
+        self.set.0.get(1).len()
+    }
+
     /// Combines the functions [`Self::eq`] and [`Self::le`].
-    fn cmp<F: FnMut(usize, usize) -> bool>(&mut self, other: &Mset, mut cmp: F) -> bool {
+    fn cmp_with<F: FnMut(usize, usize) -> bool>(&mut self, other: &Mset, mut cmp: F) -> bool {
         // We could optimize this by not clearing the buffers twice.
         // They should already be empty whenever this function is called.
         let mut levels = mem::take(&mut self.other).reuse();
@@ -943,7 +948,7 @@ impl<'a> Compare<'a> {
 
         // Safety: by building our levels manually, we guarantee the type invariants.
         let res = unsafe {
-            let mut idx = levels.level_len();
+            let mut idx = 1;
             while levels.next_level(&mut buf) {
                 let level = self.set.0.get(idx);
                 if level.is_empty() || !cmp(level.len(), levels.get(idx).len()) {
@@ -963,7 +968,7 @@ impl<'a> Compare<'a> {
 
     /// Tests equality with another set.
     pub fn eq(&mut self, other: &Mset) -> bool {
-        self.cmp(other, |x, y| x == y)
+        self.cmp_with(other, |x, y| x == y)
     }
     /// Tests inequality with another set.
     pub fn ne(&mut self, other: &Mset) -> bool {
@@ -972,19 +977,35 @@ impl<'a> Compare<'a> {
 
     /// Tests subset with another set.
     pub fn le(&mut self, other: &Mset) -> bool {
-        self.cmp(other, |x, y| x <= y)
+        self.cmp_with(other, |x, y| x <= y)
     }
-    /// Tests strict subset with another set.
-    pub fn gt(&mut self, other: &Mset) -> bool {
-        !self.le(other)
+    /// Tests superset with another set.
+    pub fn ge(&mut self, other: &Mset) -> bool {
+        self.cmp_with(other, |x, y| x >= y)
     }
 
     /// Tests strict subset with another set.
     pub fn lt(&mut self, other: &Mset) -> bool {
-        self.set.nest_vec().get(1).len() < other.card() && self.le(other)
+        self.card() < other.card() && self.le(other)
     }
-    /// Tests  subset with another set.
-    pub fn ge(&mut self, other: &Mset) -> bool {
-        !self.lt(other)
+    /// Tests strict superset with another set.
+    pub fn gt(&mut self, other: &Mset) -> bool {
+        self.card() > other.card() && self.ge(other)
+    }
+
+    /// Compares two sets.
+    pub fn partial_cmp(&mut self, other: &Mset) -> Option<Ordering> {
+        let cmp = self.card().cmp(&other.card());
+        let test = match cmp {
+            Ordering::Equal => self.eq(other),
+            Ordering::Less => self.le(other),
+            Ordering::Greater => self.ge(other),
+        };
+
+        if test {
+            Some(cmp)
+        } else {
+            None
+        }
     }
 }

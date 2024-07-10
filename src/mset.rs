@@ -232,6 +232,11 @@ impl SetTrait for Mset {
         }
     }
 
+    fn count(&self, set: &Self) -> usize {
+        let mut cmp = Compare::new(set);
+        self.iter().filter(|el| cmp.eq(el)).count()
+    }
+
     fn sum(mut self, mut other: Self) -> Self {
         self.0.append(&mut other.0);
         self
@@ -482,15 +487,8 @@ impl Mset {
         iter.into_iter().flatten().collect()
     }
 
-    /// Count multiplicity of an element in a set.
-    #[must_use]
-    pub fn count(&self, other: &Self) -> usize {
-        let mut cmp = Compare::new(self);
-        other.iter().filter(|set| cmp.eq(set.as_ref())).count()
-    }
-
-    /// Chooses some arbitrary index containing an element. Equal multisets should get assigned indices that
-    /// correspond to equal multisets.
+    /// Chooses some arbitrary index containing an element. Equal multisets should get assigned
+    /// indices that correspond to equal multisets.
     fn choose_uniq_idx(&self) -> Option<usize> {
         let vec = Ahu::new_iter(self);
         vec.iter()

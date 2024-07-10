@@ -210,6 +210,9 @@ pub trait SetTrait:
         self.singleton().insert(other)
     }
 
+    /// Count multiplicity of an element in a set.
+    fn count(&self, set: &Self) -> usize;
+
     /// Sum over a vector. See [`SetTrait::sum`].
     fn sum_vec(vec: Vec<Self>) -> Self;
 

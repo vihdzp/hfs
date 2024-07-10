@@ -333,6 +333,10 @@ impl SetTrait for Set {
             .select_mut(|set| pred(unsafe { set.as_set_unchecked() }));
     }
 
+    fn count(&self, other: &Self) -> usize {
+        self.contains(other) as usize
+    }
+
     fn sum_vec(vec: Vec<Self>) -> Self {
         // Union of empty collection is Ø.
         if vec.is_empty() {

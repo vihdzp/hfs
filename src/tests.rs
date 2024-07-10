@@ -26,6 +26,18 @@ macro_rules! test {
     };
 }
 
+/// Asserts that two booleans compare in the expected manner.
+macro_rules! assert_cmp {
+    ($expect: expr, $cmp: expr, $msg: literal) => {
+        let expect = $expect;
+        let cmp = $cmp;
+        let not = if expect { " not " } else { " " };
+        if expect != cmp {
+            panic!($msg, not);
+        }
+    };
+}
+
 trait Suite: SetTrait {
     /// A multitude of general sets for general-purpose testing.
     ///
@@ -114,14 +126,41 @@ trait Suite: SetTrait {
         }
     }
 
-    /// Test [`SetTrait::eq`].
+    /// Test [`PartialEq::eq`].
     fn _eq() {
         for (i, _, set_1) in Self::suite() {
             for (j, _, set_2) in Self::suite() {
-                assert_eq!(
+                assert_cmp!(
                     i == j,
                     set_1 == set_2,
-                    "set equality fail at {i}, {j}: {set_1} not equal to {set_2}"
+                    "set equality fail at {i}, {j}: {set_1}{}equal to {set_2}"
+                );
+
+                assert_cmp!(
+                    i == j,
+                    set_1.partial_cmp(&set_2) == Some(Ordering::Equal),
+                    "set equality fail at {i}, {j}: {set_1}{}equal to {set_2}"
+                );
+            }
+        }
+    }
+
+    /// Test [`SetTrait::subset`].
+    fn _subset() {
+        for (i, _, set_1) in Self::suite() {
+            for (j, _, set_2) in Self::suite() {
+                let subset = set_1.iter().all(|s| set_1.count(s) <= set_2.count(s));
+
+                assert_cmp!(
+                    subset,
+                    set_1 <= set_2,
+                    "set equality fail at {i}, {j}: {set_1}{}a subset of {set_2}"
+                );
+
+                assert_cmp!(
+                    subset,
+                    set_1.partial_cmp(&set_2).is_some_and(Ordering::is_le),
+                    "set equality fail at {i}, {j}: {set_1}{}a subset of {set_2}"
                 );
             }
         }
@@ -131,10 +170,11 @@ trait Suite: SetTrait {
     fn _contains() {
         for (i, _, set_1) in Self::suite() {
             for (j, _, set_2) in Self::suite() {
-                assert_eq!(
-                    Self::MEM.contains(&(i, j)),
+                let exp = Self::MEM.contains(&(i, j));
+                assert_cmp!(
+                    exp,
                     set_2.contains(&set_1),
-                    "set membership fail at {i}, {j}: {set_1} not a member of {set_2}"
+                    "set membership fail at {i}, {j}: {set_1}{}a member of {set_2}"
                 );
             }
         }
@@ -247,7 +287,7 @@ impl Suite for Set {
     }
 }
 
-test!(_suite, _empty, _singleton, _pair, _eq, _contains, _nat, _sum, _union, _inter);
+test!(_suite, _empty, _singleton, _pair, _eq, _subset, _contains, _nat, _sum, _union, _inter);
 
 #[test]
 fn set_kpair() {
