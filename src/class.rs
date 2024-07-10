@@ -311,7 +311,7 @@ impl Iterator for Univ {
 ///
 /// ## Invariants
 ///
-/// Every two elements in a [`Class`] must be distinct. **Unsafe code performs optimizations
+/// Every two elements in a [`Class`] must be distinct. **Unsafe code can perform optimizations
 /// contingent on this.**
 #[derive(IntoIterator)]
 pub struct Class(Box<dyn Iterator<Item = Set>>);
@@ -421,7 +421,7 @@ impl Class {
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a
     /// class by applying a function.
     #[must_use]
-    pub fn replacement<F: FnMut(Set) -> Set + 'static>(self, func: F) -> Self {
+    pub fn replace<F: FnMut(Set) -> Set + 'static>(self, func: F) -> Self {
         Self::new(self.into_iter().map(func))
     }
 
@@ -433,7 +433,7 @@ impl Class {
     /// You must guarantee that the function does not yield the same output for two distinct
     /// elements of the class.
     #[must_use]
-    pub unsafe fn replacement_unchecked<F: FnMut(Set) -> Set + 'static>(self, func: F) -> Self {
+    pub unsafe fn replace_unchecked<F: FnMut(Set) -> Set + 'static>(self, func: F) -> Self {
         Self::new_unchecked(self.into_iter().map(func))
     }
 

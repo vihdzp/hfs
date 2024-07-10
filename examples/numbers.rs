@@ -104,8 +104,8 @@ fn real(x: f64) -> Class {
         // Retrieve rational.
         // Safety: these are guaranteed to be valid Kuratowski pairs.
         let r = unsafe {
-            let (k, n) = r.ksplit().unwrap_unchecked().into_pair();
-            let (s, m) = k.ksplit().unwrap_unchecked().into_pair();
+            let (k, n) = r.ksplit().unwrap_unchecked().pair();
+            let (s, m) = k.ksplit().unwrap_unchecked().pair();
             let f = m.card() as f64 / n.card() as f64;
             if s.is_empty() {
                 f

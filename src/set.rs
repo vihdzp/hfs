@@ -7,8 +7,8 @@ use crate::prelude::*;
 ///
 /// ## Invariants
 ///
-/// These invariants should hold for any [`Set`]. **Unsafe code performs optimizations contingent on
-/// these.**
+/// These invariants should hold for any [`Set`]. **Unsafe code can perform optimizations contingent
+/// on these.**
 ///
 /// - Every two elements in a [`Set`] must be distinct.
 /// - Any element in a [`Set`] must be a valid [`Set`] also.
@@ -602,11 +602,29 @@ impl Set {
     /// You must guarantee that the function does not yield the same output for two distinct
     /// elements of the set.
     #[must_use]
-    pub unsafe fn replacement_unchecked<F: FnMut(&Self) -> Self>(&self, mut func: F) -> Self {
+    pub unsafe fn replace_unchecked<F: FnMut(&Self) -> Self>(&self, mut func: F) -> Self {
         Self(
             self.0
                 .iter()
                 .map(|set| func(set.as_set_unchecked()).0)
+                .collect::<Vec<_>>()
+                .into(),
+        )
+    }
+
+    /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
+    /// by applying a function. Does not verify that the mapped elements are distinct.
+    ///
+    /// ## Safety
+    ///
+    /// You must guarantee that the function does not yield the same output for two distinct
+    /// elements of the set.
+    #[must_use]
+    pub unsafe fn into_replace_unchecked<F: FnMut(Self) -> Self>(self, mut func: F) -> Self {
+        Self(
+            self.0
+                .into_iter()
+                .map(|set| func(set.into_set_unchecked()).0)
                 .collect::<Vec<_>>()
                 .into(),
         )
@@ -677,6 +695,14 @@ impl<T> Kpair<T> {
             Self::Same(x) => (x.clone(), x),
             Self::Distinct(x, y) => (x, y),
         }
+    }
+
+    /// Converts a [`Kpair`] into a standard pair.
+    pub fn pair(self) -> (T, T)
+    where
+        T: Copy,
+    {
+        self.into_pair()
     }
 }
 

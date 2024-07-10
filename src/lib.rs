@@ -311,44 +311,6 @@ pub trait SetTrait:
         self < other
     }
 
-    /*
-    /// A filter over mutable references to elements equal to another.
-    fn filter_eq_mut<'a>(&'a mut self, other: &'a Self) -> impl Iterator<Item = &'a mut Self> {
-        // Safety: this buffer is only used to initialize the first set in `self`.
-        let mut outer_fst = unsafe { Levels::empty() };
-        let snd = Levels::init(other.as_ref()).fill();
-        let mut outer_buf = Vec::new();
-
-        // Check equality between every set in `self` and `other`.
-        unsafe { self._as_mut_slice() }
-            .iter_mut()
-            .filter(move |set| {
-                let mut fst = mem::replace(&mut outer_fst, unsafe { Levels::empty() }).reuse();
-                let mut buf = reuse_vec(std::mem::take(&mut outer_buf));
-
-                // `fst` must have exactly as many levels as `snd` of the same lengths.
-                fst.init_mut(set.as_ref());
-                while fst.step(&mut buf) {
-                    if let Some(level) = snd.get(fst.rank()) {
-                        if fst.last().len() != level.len() {
-                            return false;
-                        }
-                    } else {
-                        return false;
-                    }
-                }
-
-                // Safety: both `fst` and `snd` are valid for `Levels<&Self>`.
-                let res = fst.level_len() == snd.level_len()
-                    && unsafe { Self::_levels_subset(&fst, &snd) };
-
-                outer_fst = fst.reuse();
-                outer_buf = reuse_vec(buf);
-                res
-            })
-    }
-    */
-
     /// Membership relation ∈.
     fn contains(&self, other: &Self) -> bool {
         let mut cmp = Compare::new(other.as_ref());
@@ -377,14 +339,14 @@ pub trait SetTrait:
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
     /// by applying a function.
     #[must_use]
-    fn replacement<F: FnMut(&Self) -> Self>(&self, func: F) -> Self {
+    fn replace<F: FnMut(&Self) -> Self>(&self, func: F) -> Self {
         Self::from_vec(self.iter().map(func).collect())
     }
 
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
     /// by applying a function.
     #[must_use]
-    fn into_replacement<F: FnMut(Self) -> Self>(self, func: F) -> Self {
+    fn into_replace<F: FnMut(Self) -> Self>(self, func: F) -> Self {
         Self::from_vec(self.into_iter().map(func).collect())
     }
 

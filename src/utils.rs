@@ -18,32 +18,6 @@ pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usiz
     }
 }
 
-/*
-/// Represents the multisets at each rank within one or more [`Mset`], and assigns some data to
-/// each. Most complex algorithms for sets, like [`Mset::contains`] or [`Mset::subset`], are
-/// actually implemented in terms of this type.
-///
-/// To save on allocations, we use a single vector and an "indexing" vector to get subslices of it,
-/// but morally, this is a `Vec<Vec<T>>`. As a further optimization, many functions take in an
-/// initial [`Levels`] to use as a buffer, which can be built from [`Self::init`] or reused with
-/// [`Self::init_with`].
-///
-/// ## Invariants
-///
-/// These invariants should hold for any [`Levels`]. **Unsafe code performs optimizations contingent
-/// on these.**
-///
-/// - Every [`Levels`] must have a root level, and no level can be empty.
-/// - The elements of `indices` are a strictly increasing sequence, and they are all smaller than
-///   the length of `data`.
-///
-/// We also consider "properly initialized" [`Levels`]. These have an argument `T` of either `&Mset`
-/// or `*mut Mset`, and must additionally satisfy:
-///
-/// - The sum of the cardinalities of elements within a given level equals the number of elements in
-///   the next level.
-*/
-
 /// A vector of vectors, flattened into a single vector plus a vector of indices. This saves on
 /// allocations at the expense of not being able to add new elements to the vectors we've already
 /// added.
@@ -52,7 +26,7 @@ pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usiz
 ///
 /// ## Invariants
 ///
-/// These invariants should hold for any [`NestVec`]. **Unsafe code performs optimizations
+/// These invariants should hold for any [`NestVec`]. **Unsafe code can perform optimizations
 /// contingent on these.**
 ///
 /// - The elements of `indices` form an increasing sequence.
@@ -323,8 +297,8 @@ impl SetPtr for *mut Mset {
 ///
 /// ## Invariants
 ///
-/// These invariants should hold for any [`Levels`]. **Unsafe code performs optimizations contingent
-/// on these.**
+/// These invariants should hold for any [`Levels`]. **Unsafe code can perform optimizations
+/// contingent on these.**
 ///
 /// - None of the levels are empty.
 ///

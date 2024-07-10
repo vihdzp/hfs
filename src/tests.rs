@@ -329,15 +329,13 @@ fn set_kpair() {
         for (j, _, set_2) in Set::suite() {
             let pair = Set::kpair(set_1.clone(), set_2.clone());
             assert_eq!(
-                pair.ksplit().expect("could not split pair").into_pair(),
+                pair.ksplit().expect("could not split pair").pair(),
                 (&set_1, &set_2),
                 "kpair fail at {i}, {j}: pair not split correctly"
             );
 
             assert_eq!(
-                pair.into_ksplit()
-                    .expect("could not split pair")
-                    .into_pair(),
+                pair.into_ksplit().expect("could not split pair").pair(),
                 (set_1.clone(), set_2),
                 "kpair fail at {i}, {j}: pair not split correctly"
             );
