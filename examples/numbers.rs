@@ -3,7 +3,9 @@
 //! unfortunately infinite sets, so we're forced to come up with alternate ways to model these
 //! collections.
 //!
-//! By doing this, we can then model real numbers as Dedekind cuts in ℚ.
+//! By doing this, we can then model real numbers as classes of Dedekind cuts in ℚ.
+
+#![allow(dead_code)]
 
 use hfs::prelude::*;
 
@@ -37,10 +39,16 @@ fn nat_to_int(n: usize) -> isize {
 }
 
 /// The class of integers.
-#[allow(dead_code)]
 fn class_int() -> Class {
     // Safety: this iterator has no duplicates.
     unsafe { Class::new_unchecked((0..).map(|n| int(nat_to_int(n)))) }
+}
+
+/// Pairs up an integer and a natural number.
+fn rat_unchecked(m: isize, n: usize) -> Set {
+    // Safety: no natural number is a valid Kuratowski pair.
+    // Exercise: what integers would correspond to natural numbers under the Zermelo encoding?
+    unsafe { int(m).kpair_unchecked(Set::nat(n)) }
 }
 
 /// A rational m&frasl;n is a pair of an integer and a natural number, representing the fraction in
@@ -68,9 +76,7 @@ fn rat(m: isize, n: usize) -> Option<Set> {
         (-(x as isize), y)
     };
 
-    // Safety: no natural number is a valid Kuratowski pair.
-    // Exercise: what integers would correspond to natural numbers under the Zermelo encoding?
-    Some(unsafe { int(m).kpair_unchecked(Set::nat(n)) })
+    Some(rat_unchecked(m, n))
 }
 
 /// The class of rationals.
@@ -80,7 +86,7 @@ fn class_rat() -> Class {
         Class::new_unchecked(class::Product::new(0.., 1..).filter_map(|(m, n)| {
             let m = nat_to_int(m);
             if gcd::binary_usize(m.unsigned_abs(), n) == 1 {
-                rat(m, n)
+                Some(rat_unchecked(m, n))
             } else {
                 None
             }
@@ -96,10 +102,17 @@ fn class_rat() -> Class {
 fn real(x: f64) -> Class {
     class_rat().select(move |r| {
         // Retrieve rational.
-        let (k, n) = r.ksplit().unwrap();
-        let (s, m) = k.ksplit().unwrap();
-        let f = m.card() as f64 / n.card() as f64;
-        let r = if s.is_empty() { f } else { -f };
+        // Safety: these are guaranteed to be valid Kuratowski pairs.
+        let r = unsafe {
+            let (k, n) = r.ksplit().unwrap_unchecked().into_pair();
+            let (s, m) = k.ksplit().unwrap_unchecked().into_pair();
+            let f = m.card() as f64 / n.card() as f64;
+            if s.is_empty() {
+                f
+            } else {
+                -f
+            }
+        };
 
         r < x
     })

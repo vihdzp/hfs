@@ -105,6 +105,9 @@ pub trait SetTrait:
         self.into()
     }
 
+    /// Builds the set from a vector of sets.
+    fn from_vec(vec: Vec<Self>) -> Self;
+
     /// Removes all elements from the set.
     fn clear(&mut self) {
         // Safety: The empty set is valid for both types.
@@ -138,7 +141,13 @@ pub trait SetTrait:
 
     /// Von Neumann set rank.
     fn rank(&self) -> usize {
-        Levels::new(self.as_ref()).rank()
+        // Safety: the resulting `Levels` has at least one level.
+        unsafe {
+            Levels::new(self.as_ref())
+                .nest_vec()
+                .level_len()
+                .unchecked_sub(1)
+        }
     }
 
     // -------------------- Constructions -------------------- //
@@ -204,7 +213,7 @@ pub trait SetTrait:
         self
     }
 
-    /// Set pair {x, y}.
+    /// Set pair {x, y} = {x} + {y}.
     #[must_use]
     fn pair(self, other: Self) -> Self {
         self.singleton().insert(other)
@@ -290,39 +299,6 @@ pub trait SetTrait:
     /// The [von Neumann hierarchy](https://en.wikipedia.org/wiki/Von_Neumann_universe).
     fn neumann(n: usize) -> Self;
 
-    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
-    /// non-empty set.
-    ///
-    /// This should be treated as a complete black box. In particular, **equal sets don't
-    /// necessarily choose the same value**. If that fact makes this philosophically unsuitable as
-    /// an implementation of choice, we also provide [`SetTrait::choose_uniq`], which is more
-    /// computationally expensive but chooses the same element for equal sets.
-    ///
-    /// Likewise, we don't guarantee that different functions like [`SetTrait::into_choose`] will
-    /// select the same element.
-    fn choose(&self) -> Option<&Self> {
-        self.as_slice().first()
-    }
-
-    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
-    /// non-empty set.
-    ///
-    /// See [`SetTrait::choose`].
-    fn into_choose(self) -> Option<Self>;
-
-    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
-    /// non-empty set.
-    ///
-    /// Unlike [`SetTrait::choose`], this always selects the same element for equal sets. We make no
-    /// further guarantees – this should be treated as a black box.
-    fn choose_uniq(&self) -> Option<&Self>;
-
-    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
-    /// non-empty set.
-    ///
-    /// See [`SetTrait::choose_uniq`].
-    fn into_choose_uniq(self) -> Option<Self>;
-
     // -------------------- Relations -------------------- //
 
     /// Subset relation ⊆.
@@ -395,4 +371,54 @@ pub trait SetTrait:
     /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_iter`].
     fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
     */
+
+    // -------------------- Axioms -------------------- //
+
+    /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
+    /// by applying a function.
+    #[must_use]
+    fn replacement<F: FnMut(&Self) -> Self>(&self, func: F) -> Self {
+        Self::from_vec(self.iter().map(func).collect())
+    }
+
+    /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
+    /// by applying a function.
+    #[must_use]
+    fn into_replacement<F: FnMut(Self) -> Self>(self, func: F) -> Self {
+        Self::from_vec(self.into_iter().map(func).collect())
+    }
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// This should be treated as a complete black box. In particular, **equal sets don't
+    /// necessarily choose the same value**. If that fact makes this philosophically unsuitable as
+    /// an implementation of choice, we also provide [`SetTrait::choose_uniq`], which is more
+    /// computationally expensive but chooses the same element for equal sets.
+    ///
+    /// We do however guarantee that [`SetTrait::into_choose`] will select the same element.
+    fn choose(&self) -> Option<&Self> {
+        self.as_slice().first()
+    }
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// See [`SetTrait::choose`].
+    fn into_choose(self) -> Option<Self>;
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// Unlike [`SetTrait::choose`], this always selects the same element for equal sets. We make no
+    /// further guarantees – this should be treated as a black box.
+    ///
+    /// We do however guarantee that [`SetTrait::into_choose_uniq`] will select the same element.
+    fn choose_uniq(&self) -> Option<&Self>;
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty set.
+    ///
+    /// See [`SetTrait::choose_uniq`].
+    fn into_choose_uniq(self) -> Option<Self>;
 }

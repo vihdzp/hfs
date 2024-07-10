@@ -147,18 +147,6 @@ impl Mset {
         Set(self)
     }
 
-    /// Transmutes a [`Mset`] reference into a [`Set`] reference, first checking the type
-    /// invariants.
-    #[must_use]
-    pub fn as_set_checked(&self) -> Option<&Set> {
-        if self.is_set() {
-            // Safety: both types have the same layout, and we just checked the invariant.
-            Some(unsafe { &*(ptr::from_ref(self).cast()) })
-        } else {
-            None
-        }
-    }
-
     /// Transmutes a [`Mset`] reference into a [`Set`] reference **without** checking the type
     /// invariants.
     ///
@@ -167,16 +155,17 @@ impl Mset {
     /// You must guarantee that the [`Mset`] satisfies the type invariants for [`Set`].
     #[must_use]
     pub unsafe fn as_set_unchecked(&self) -> &Set {
-        self.as_set_checked().unwrap_unchecked()
+        // Safety: both types have the same layout.
+        &*(ptr::from_ref(self).cast())
     }
 
-    /// Transmutes a mutable [`Mset`] reference into a [`Set`] reference, first checking the type
+    /// Transmutes a [`Mset`] reference into a [`Set`] reference, first checking the type
     /// invariants.
     #[must_use]
-    pub fn as_set_mut_checked(&mut self) -> Option<&mut Set> {
+    pub fn as_set_checked(&self) -> Option<&Set> {
         if self.is_set() {
-            // Safety: both types have the same layout, and we just checked the invariant.
-            Some(unsafe { &mut *(ptr::from_mut(self).cast()) })
+            // Safety: we just checked the invariant.
+            Some(unsafe { self.as_set_unchecked() })
         } else {
             None
         }
@@ -190,7 +179,20 @@ impl Mset {
     /// You must guarantee that the [`Mset`] satisfies the type invariants for [`Set`].
     #[must_use]
     pub unsafe fn as_set_mut_unchecked(&mut self) -> &mut Set {
-        self.as_set_mut_checked().unwrap_unchecked()
+        // Safety: both types have the same layout.
+        &mut *(ptr::from_mut(self).cast())
+    }
+
+    /// Transmutes a mutable [`Mset`] reference into a [`Set`] reference, first checking the type
+    /// invariants.
+    #[must_use]
+    pub fn as_set_mut_checked(&mut self) -> Option<&mut Set> {
+        if self.is_set() {
+            // Safety: we just checked the invariant.
+            Some(unsafe { self.as_set_mut_unchecked() })
+        } else {
+            None
+        }
     }
 
     /// Converts `Vec<Mset>` into `Vec<Set>`.
@@ -227,7 +229,8 @@ impl Iterator for Cast<std::vec::IntoIter<Mset>> {
     type Item = Set;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(Set)
+        // Safety: we're iterating over a set.
+        self.0.next().map(|s| unsafe { s.into_set_unchecked() })
     }
 }
 
@@ -287,13 +290,13 @@ impl SetTrait for Set {
 
     fn as_slice(&self) -> &[Self] {
         let slice = self.0.as_slice();
-        // Safety: Set and Mset have the same layout.
+        // Safety: `Set` and `Mset` have the same layout.
         unsafe { slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
     }
 
     unsafe fn _as_mut_slice(&mut self) -> &mut [Self] {
         let slice = self.0.as_mut_slice();
-        // Safety: Set and Mset have the same layout.
+        // Safety: `Set` and `Mset` have the same layout.
         slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len())
     }
 
@@ -303,6 +306,17 @@ impl SetTrait for Set {
 
     unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset> {
         self.0._as_mut_vec()
+    }
+
+    fn from_vec(vec: Vec<Self>) -> Self {
+        let mut vec = Set::cast_vec(vec);
+        let keys = Levels::new_iter(vec.iter()).ahu(0);
+        // Safety: `keys` has as many elements as `children`. We deduplicate the set so that there
+        // are no repeats.
+        unsafe {
+            dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
+            Self(vec.into())
+        }
     }
 
     // -------------------- Constructions -------------------- //
@@ -338,21 +352,7 @@ impl SetTrait for Set {
     }
 
     fn sum_vec(vec: Vec<Self>) -> Self {
-        // Union of empty collection is Ø.
-        if vec.is_empty() {
-            return Self::empty();
-        }
-
-        let keys = Levels::new_iter(vec.iter().map(AsRef::as_ref))
-            .unwrap()
-            .ahu(1);
-        let mut children = Mset::sum_vec(Set::cast_vec(vec));
-        // Safety: `keys` has as many elements as `children`.
-        unsafe {
-            dedup_by(&mut children.0, &keys, &mut Vec::new(), &mut Vec::new());
-        }
-
-        Self(children)
+        Self::from_vec(vec.into_iter().flatten().collect())
     }
 
     fn union_vec(vec: Vec<Self>) -> Self {
@@ -367,7 +367,7 @@ impl SetTrait for Set {
             _ => {}
         }
 
-        let levels = Levels::new_iter(vec.iter().map(AsRef::as_ref)).unwrap();
+        let levels = Levels::new_iter(vec.iter().map(AsRef::as_ref));
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { levels.children_slice(0, &next) };
@@ -390,9 +390,7 @@ impl SetTrait for Set {
             for set in slice {
                 match sets.entry(*set) {
                     Entry::Vacant(_) => {}
-                    Entry::Occupied(mut entry) => {
-                        entry.get_mut().1 = true;
-                    }
+                    Entry::Occupied(mut entry) => entry.get_mut().1 = true,
                 }
             }
 
@@ -522,6 +520,8 @@ impl SetTrait for Set {
     */
 }
 
+// -------------------- Set specific -------------------- //
+
 impl Set {
     /// Returns a reference to the inner [`Mset`].
     #[must_use]
@@ -593,18 +593,103 @@ impl Set {
         }
         res
     }
+
+    /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
+    /// by applying a function. Does not verify that the mapped elements are distinct.
+    ///
+    /// ## Safety
+    ///
+    /// You must guarantee that the function does not yield the same output for two distinct
+    /// elements of the set.
+    #[must_use]
+    pub unsafe fn replacement_unchecked<F: FnMut(&Self) -> Self>(&self, mut func: F) -> Self {
+        Self(
+            self.0
+                .iter()
+                .map(|set| func(set.as_set_unchecked()).0)
+                .collect::<Vec<_>>()
+                .into(),
+        )
+    }
 }
 
 // -------------------- Ordered pairs -------------------- //
 
+/// Encodes the elements stored in a [Kuratowski
+/// pair](https://en.wikipedia.org/wiki/Ordered_pair#Kuratowski's_definition).
+///
+/// A pair (x, x) is equal to {{x}}, which means x is not allocated twice. This structure thus
+/// avoids needless clones.
+pub enum Kpair<T> {
+    /// A pair (x, x).
+    Same(T),
+    /// A pair (x, y) with x ≠ y.
+    Distinct(T, T),
+}
+
+impl<T> Kpair<T> {
+    /// Initializes a new [`Kpair`].
+    pub fn new(x: T, y: T) -> Self
+    where
+        T: PartialEq,
+    {
+        if x == y {
+            Self::Same(x)
+        } else {
+            Self::Distinct(x, y)
+        }
+    }
+
+    /// Returns a reference to the first entry.
+    pub const fn fst(&self) -> &T {
+        match self {
+            Self::Same(x) | Self::Distinct(x, _) => x,
+        }
+    }
+
+    /// Returns a reference to the second entry.
+    pub const fn snd(&self) -> &T {
+        match self {
+            Self::Same(x) | Self::Distinct(_, x) => x,
+        }
+    }
+
+    /// Returns the first entry.
+    pub fn into_fst(self) -> T {
+        match self {
+            Self::Same(x) | Self::Distinct(x, _) => x,
+        }
+    }
+
+    /// Returns the second entry.
+    pub fn into_snd(self) -> T {
+        match self {
+            Self::Same(x) | Self::Distinct(_, x) => x,
+        }
+    }
+
+    /// Converts a [`Kpair`] into a standard pair. Note that this might require a clone operation.
+    pub fn into_pair(self) -> (T, T)
+    where
+        T: Clone,
+    {
+        match self {
+            Self::Same(x) => (x.clone(), x),
+            Self::Distinct(x, y) => (x, y),
+        }
+    }
+}
+
 impl Set {
-    /// A Kuratowski pair (x, x) = {{x}}.
+    /// A [Kuratowski pair](https://en.wikipedia.org/wiki/Ordered_pair#Kuratowski's_definition) (x,
+    /// x) = {{x}}.
     #[must_use]
     pub fn id_kpair(self) -> Self {
         self.singleton().singleton()
     }
 
-    /// Kuratowski pair (x, y) = {{x}, {x, y}}. Does not check whether x ≠ y.
+    /// A [Kuratowski pair](https://en.wikipedia.org/wiki/Ordered_pair#Kuratowski's_definition) (x,
+    /// y) = {{x}, {x, y}}. Does not check whether x ≠ y.
     ///
     /// ## Safety
     ///
@@ -616,7 +701,8 @@ impl Set {
         x.clone().singleton().pair(x.pair(y)).into_set_unchecked()
     }
 
-    /// Kuratowski pair (x, y) = {{x}, {x, y}}.
+    /// A [Kuratowski pair](https://en.wikipedia.org/wiki/Ordered_pair#Kuratowski's_definition) (x,
+    /// y) = {{x}, {x, y}}.
     #[must_use]
     pub fn kpair(self, other: Self) -> Self {
         if self == other {
@@ -629,18 +715,18 @@ impl Set {
 
     /// Decomposes a Kuratowski pair.
     #[must_use]
-    pub fn ksplit(&self) -> Option<(&Self, &Self)> {
+    pub fn ksplit(&self) -> Option<Kpair<&Self>> {
         match self.as_slice() {
             [set] => match set.as_slice() {
-                [a] => Some((a, a)),
+                [a] => Some(Kpair::Same(a)),
                 _ => None,
             },
             [fst, snd] => match (fst.as_slice(), snd.as_slice()) {
                 ([a], [b, c]) | ([b, c], [a]) => {
                     if a == b {
-                        Some((a, c))
+                        Some(Kpair::Distinct(a, c))
                     } else if a == c {
-                        Some((a, b))
+                        Some(Kpair::Distinct(a, b))
                     } else {
                         None
                     }
@@ -653,21 +739,21 @@ impl Set {
 
     /// Decomposes a Kuratowski pair.
     #[must_use]
-    pub fn into_ksplit(mut self) -> Option<(Self, Self)> {
+    pub fn into_ksplit(mut self) -> Option<Kpair<Self>> {
         // Safety: our usage of `as_mut_slice` causes no issues, as the set is dropped and discarded
         // when the method returns.
         unsafe {
             match self.as_mut_slice() {
                 [set] => match set.as_mut_slice() {
-                    [a] => Some((a.clone(), mem::take(a))),
+                    [a] => Some(Kpair::Same(mem::take(a))),
                     _ => None,
                 },
                 [fst, snd] => match (fst.as_mut_slice(), snd.as_mut_slice()) {
                     ([a], [b, c]) | ([b, c], [a]) => {
                         if a == b {
-                            Some((mem::take(a), mem::take(c)))
+                            Some(Kpair::Distinct(mem::take(a), mem::take(c)))
                         } else if a == c {
-                            Some((mem::take(a), mem::take(b)))
+                            Some(Kpair::Distinct(mem::take(a), mem::take(b)))
                         } else {
                             None
                         }
@@ -762,13 +848,30 @@ impl Set {
     #[must_use]
     pub fn eval(&self, set: &Self) -> Option<&Self> {
         let mut cmp = Compare::new(set.mset());
-        self.iter().map_while(|el| el.ksplit()).find_map(|(a, b)| {
-            if cmp.eq(a.mset()) {
-                Some(b)
+        self.iter().map_while(Set::ksplit).find_map(|pair| {
+            if cmp.eq(pair.fst().mset()) {
+                Some(pair.into_snd())
             } else {
                 None
             }
         })
+    }
+
+    /// Evaluates a function at a set. Returns `None` if the set is not in the domain.
+    ///
+    /// If `self` is not a function, the result will almost definitely be garbage.
+    #[must_use]
+    pub fn into_eval(self, set: &Self) -> Option<Self> {
+        let mut cmp = Compare::new(set.mset());
+        self.into_iter()
+            .map_while(Set::into_ksplit)
+            .find_map(|pair| {
+                if cmp.eq(pair.fst().mset()) {
+                    Some(pair.into_snd())
+                } else {
+                    None
+                }
+            })
     }
 
     /// Returns the identity function with domain `self`.

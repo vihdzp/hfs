@@ -31,6 +31,12 @@ impl From<Mset> for Vec<Mset> {
     }
 }
 
+impl From<Vec<Mset>> for Mset {
+    fn from(vec: Vec<Mset>) -> Self {
+        Self(vec)
+    }
+}
+
 impl FromIterator<Mset> for Mset {
     fn from_iter<T: IntoIterator<Item = Mset>>(iter: T) -> Self {
         Self(iter.into_iter().collect())
@@ -195,6 +201,10 @@ impl SetTrait for Mset {
         &mut self.0
     }
 
+    fn from_vec(vec: Vec<Self>) -> Self {
+        vec.into()
+    }
+
     // -------------------- Constructions -------------------- //
 
     fn empty() -> Self {
@@ -254,7 +264,7 @@ impl SetTrait for Mset {
             _ => {}
         }
 
-        let levels = Levels::new_iter(&vec).unwrap();
+        let levels = Levels::new_iter(&vec);
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { levels.children_slice(0, &next) }.enumerate();
@@ -324,7 +334,7 @@ impl SetTrait for Mset {
             1 => return Some(vec.pop().unwrap()),
             _ => {}
         }
-        let levels = Levels::new_iter(&vec).unwrap();
+        let levels = Levels::new_iter(&vec);
 
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
@@ -375,7 +385,7 @@ impl SetTrait for Mset {
         for (indices, _) in sets.into_values() {
             for i in indices {
                 // Safety: all the indices we built are valid for the first set.
-                let set = mem::take(unsafe { fst._as_mut_slice().get_unchecked_mut(i) });
+                let set = mem::take(unsafe { fst.0.get_unchecked_mut(i) });
                 snd.insert_mut(set);
             }
         }
@@ -436,21 +446,6 @@ impl SetTrait for Mset {
         set
     }
 
-    fn into_choose(mut self) -> Option<Self> {
-        self.0.pop()
-    }
-
-    fn choose_uniq(&self) -> Option<&Self> {
-        self.choose_uniq_idx().map(
-            // Safety: our index is valid.
-            |idx| unsafe { self.0.get_unchecked(idx) },
-        )
-    }
-
-    fn into_choose_uniq(mut self) -> Option<Self> {
-        self.choose_uniq_idx().map(|idx| self.0.swap_remove(idx))
-    }
-
     // -------------------- Relations -------------------- //
 
     /*
@@ -462,6 +457,29 @@ impl SetTrait for Mset {
         todo!()
     }
     */
+
+    // -------------------- Axioms -------------------- //
+
+    fn into_choose(mut self) -> Option<Self> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.0.swap_remove(0))
+        }
+    }
+
+    fn choose_uniq(&self) -> Option<&Self> {
+        self.choose_uniq_idx().map(
+            // Safety: our index is valid.
+            |idx| unsafe { self.0.get_unchecked(idx) },
+        )
+    }
+
+    fn into_choose_uniq(mut self) -> Option<Self> {
+        self.choose_uniq_idx()
+            // Safety: our index is valid.
+            .map(|idx| unsafe { mem::take(self.0.get_unchecked_mut(idx)) })
+    }
 }
 
 // -------------------- Other -------------------- //
@@ -490,6 +508,7 @@ impl Mset {
     /// Chooses some arbitrary index containing an element. Equal multisets should get assigned
     /// indices that correspond to equal multisets.
     fn choose_uniq_idx(&self) -> Option<usize> {
+        // Select the element with the lowest AHU encoding.
         let vec = Ahu::new_iter(self);
         vec.iter()
             .enumerate()

@@ -132,6 +132,9 @@ where
     type Item = (I::Item, J::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Despite using auxiliary variable names for compactness, we don't mutate these arrays and
+        // the index until we're sure we won't return `None`. In that way, even if our iterators are
+        // buggy and return `Some(x)` after returning `None`, the overall logic is still sound.
         let a = self.fst_values.len();
         let b = self.snd_values.len();
         let idx = self.index;
@@ -335,7 +338,7 @@ impl Class {
         Self(Box::new(iter))
     }
 
-    /// Initializes a new class from an iterator. This iterator is deduplicated.
+    /// Initializes a new class from an iterator. This iterator is deduplicated via [`Dedup`].
     pub fn new<I: Iterator<Item = Set> + 'static>(iter: I) -> Self {
         // Safety: we are deduplicating the iteraor.
         unsafe { Self::new_unchecked(Dedup::new(iter)) }
@@ -413,5 +416,30 @@ impl Class {
                 Product::new(self.into_iter(), other.into_iter()).map(|(x, y)| x.kpair(y)),
             )
         }
+    }
+
+    /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a
+    /// class by applying a function.
+    #[must_use]
+    pub fn replacement<F: FnMut(Set) -> Set + 'static>(self, func: F) -> Self {
+        Self::new(self.into_iter().map(func))
+    }
+
+    /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a
+    /// class by applying a function. Does not check that the outputs are all distinct.
+    ///
+    /// ## Safety
+    ///
+    /// You must guarantee that the function does not yield the same output for two distinct
+    /// elements of the class.
+    #[must_use]
+    pub unsafe fn replacement_unchecked<F: FnMut(Set) -> Set + 'static>(self, func: F) -> Self {
+        Self::new_unchecked(self.into_iter().map(func))
+    }
+
+    /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
+    /// non-empty class.
+    pub fn choose(&mut self) -> Option<Set> {
+        self.0.next()
     }
 }

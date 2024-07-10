@@ -1,7 +1,7 @@
 //! Utility types and algorithms for working with sets.
 //!
-//! Taking most of the space within the file is [`SetLevels`], a bespoke data structure responsible
-//! for most of the clever algorithms for basic set manipulation.
+//! Taking most of the space within the file is [`Levels`], a bespoke data structure responsible for
+//! most of the clever algorithms for basic set manipulation.
 
 use crate::{prelude::*, reuse_vec};
 use std::ops::Range;
@@ -326,8 +326,7 @@ impl SetPtr for *mut Mset {
 /// These invariants should hold for any [`Levels`]. **Unsafe code performs optimizations contingent
 /// on these.**
 ///
-/// - There is at least one level.
-/// - No levels are empty.
+/// - None of the levels are empty.
 ///
 /// At initialization, it should also satisfy:
 ///
@@ -369,14 +368,10 @@ impl<T: SetPtr> NestVec<T> {
     /// The nested vector must satisfy the invariants of the type, with the only exception that the
     /// cardinalities of the last level can add up to anything.
     #[must_use]
-    pub unsafe fn build(mut self) -> Option<Levels<T>> {
+    pub unsafe fn build(mut self) -> Levels<T> {
         let mut buf = Vec::new();
-        if self.is_empty() {
-            return None;
-        }
-
         while self.next_level(&mut buf) {}
-        Some(Levels(self))
+        Levels(self)
     }
 }
 
@@ -393,19 +388,12 @@ impl<T: SetPtr> Levels<T> {
         self.0
     }
 
-    /// Returns the number of levels, minus one.
-    #[must_use]
-    pub fn rank(&self) -> usize {
-        // Safety: we assume there must be at least one level.
-        unsafe { self.0.level_len().unchecked_sub(1) }
-    }
-
     /// Initializes a [`Levels`] from an iterator for the first level.
     ///
     /// ## Safety
     ///
     /// The pointers returned by the iterator must be dereferenceable.
-    pub unsafe fn new_iter_gen<I: IntoIterator<Item = T>>(iter: I) -> Option<Self> {
+    pub unsafe fn new_iter_gen<I: IntoIterator<Item = T>>(iter: I) -> Self {
         NestVec::from_iter(iter).build()
     }
 
@@ -416,13 +404,13 @@ impl<T: SetPtr> Levels<T> {
     /// The pointer must be dereferenceable.
     #[must_use]
     pub unsafe fn new_gen(set: T) -> Self {
-        Self::new_iter_gen([set]).unwrap_unchecked()
+        Self::new_iter_gen([set])
     }
 }
 
 impl<'a> Levels<&'a Mset> {
     /// Initializes a [`Levels`] from an iterator for the first level.
-    pub fn new_iter<I: IntoIterator<Item = &'a Mset>>(iter: I) -> Option<Self> {
+    pub fn new_iter<I: IntoIterator<Item = &'a Mset>>(iter: I) -> Self {
         // Safety: pointers from a reference are dereferenceable.
         unsafe { Self::new_iter_gen(iter) }
     }
@@ -437,7 +425,7 @@ impl<'a> Levels<&'a Mset> {
 
 impl Levels<*mut Mset> {
     /// Initializes a [`Levels`] from an iterator for the first level.
-    pub fn new_iter_mut<'a, I: IntoIterator<Item = &'a mut Mset>>(iter: I) -> Option<Self> {
+    pub fn new_iter_mut<'a, I: IntoIterator<Item = &'a mut Mset>>(iter: I) -> Self {
         // Safety: pointers from a reference are dereferenceable.
         unsafe { Self::new_iter_gen(iter.into_iter().map(ptr::from_mut)) }
     }
@@ -499,8 +487,8 @@ impl Mset {
         self.both_levels(other, |fst, snd| fst.len() == snd.len())
     }
 
-    /// Initializes two [`Levels`] in the procedure to check subsets. Returns `None` if we can
-    /// prove that they're not subsets before the structures are fully built.
+    /// Initializes two [`Levels`] in the procedure to check subsets. Returns `None` if we can prove
+    /// that they're not subsets before the structures are fully built.
     #[must_use]
     pub fn le_levels<'a>(
         self: &'a Mset,
@@ -774,11 +762,7 @@ impl Ahu {
                 .unwrap()
         }
 
-        if let Some(levels) = Levels::new_iter(iter) {
-            new_iter_levels(&levels)
-        } else {
-            Vec::new()
-        }
+        new_iter_levels(&Levels::new_iter(iter))
     }
 
     /// Finds the [`Ahu`] encoding for a multiset.
@@ -909,7 +893,9 @@ impl<'a> Levels<&'a Mset> {
 /// case where we need to compare multiple sets with a single one, this avoids recomputation of the
 /// first [`Levels`] structure, and re-allocation of the buffer for the second one.
 ///
-/// If you only need to compare two sets, use [`Mset::eq_levels`] or [`Mset::le_levels`] instead.
+/// If you only need to compare two sets, use [`Mset::eq_levels`] or [`Mset::le_levels`] instead, as
+/// they avoid allocating the entire [`Levels`] structure if the comparison can be proved false
+/// before that.
 pub struct Compare<'a> {
     /// The set to compare others against.
     set: Levels<&'a Mset>,
@@ -941,8 +927,8 @@ impl<'a> Compare<'a> {
 
     /// Combines the functions [`Self::eq`] and [`Self::le`].
     fn cmp_with<F: FnMut(usize, usize) -> bool>(&mut self, other: &Mset, mut cmp: F) -> bool {
-        // We could optimize this by not clearing the buffers twice.
-        // They should already be empty whenever this function is called.
+        // We could optimize this by not clearing the buffers twice. They should already be empty
+        // whenever this function is called.
         let mut levels = mem::take(&mut self.other).reuse();
         let mut buf = reuse_vec(mem::take(&mut self.buf));
         levels.push(other);

@@ -219,7 +219,7 @@ trait Suite: SetTrait {
         }
     }
 
-    /// Test [`Mset::inter`].
+    /// Test [`SetTrait::inter`].
     fn _inter() {
         for (i, _, set_1) in Self::suite() {
             for (j, _, set_2) in Self::suite() {
@@ -230,6 +230,37 @@ trait Suite: SetTrait {
                         "intersection fail at {i}, {j}: {inter} not a subset of {set}"
                     );
                 }
+            }
+        }
+    }
+
+    /// Test [`SetTrait::powerset`].
+    fn _powerset() {
+        for (i, _, set) in Self::suite() {
+            for subset in Self::powerset(set.clone()) {
+                assert!(
+                    subset.subset(&set),
+                    "powerset fail at {i}: {subset} not a subset of {set}"
+                );
+            }
+        }
+    }
+
+    /// Test [`SetTrait::choose`].
+    fn _choose() {
+        for (i, _, set) in Self::suite() {
+            if !set.is_empty() {
+                let choose_1 = set.choose().expect("could not choose set");
+                assert!(
+                    set.contains(choose_1),
+                    "choice fail at {i}: {choose_1} not an element of {set}"
+                );
+
+                let choose_2 = set.choose_uniq().expect("could not choose set");
+                assert!(
+                    set.contains(choose_2),
+                    "unique choice fail at {i}: {choose_2} not an element of {set}"
+                );
             }
         }
     }
@@ -287,7 +318,10 @@ impl Suite for Set {
     }
 }
 
-test!(_suite, _empty, _singleton, _pair, _eq, _subset, _contains, _nat, _sum, _union, _inter);
+test!(
+    _suite, _empty, _singleton, _pair, _eq, _subset, _contains, _nat, _sum, _union, _inter,
+    _powerset, _choose
+);
 
 #[test]
 fn set_kpair() {
@@ -295,13 +329,15 @@ fn set_kpair() {
         for (j, _, set_2) in Set::suite() {
             let pair = Set::kpair(set_1.clone(), set_2.clone());
             assert_eq!(
-                pair.ksplit().expect("could not split pair"),
+                pair.ksplit().expect("could not split pair").into_pair(),
                 (&set_1, &set_2),
                 "kpair fail at {i}, {j}: pair not split correctly"
             );
 
             assert_eq!(
-                pair.into_ksplit().expect("could not split pair"),
+                pair.into_ksplit()
+                    .expect("could not split pair")
+                    .into_pair(),
                 (set_1.clone(), set_2),
                 "kpair fail at {i}, {j}: pair not split correctly"
             );
