@@ -554,6 +554,7 @@ impl Set {
     /// ## Safety
     ///
     /// You must ensure any two sets in the vector are distinct.
+    #[must_use]
     pub unsafe fn from_vec_unchecked(vec: Vec<Self>) -> Self {
         Self(Mset::from_vec(Set::cast_vec(vec)))
     }
@@ -942,7 +943,7 @@ impl Set {
     #[must_use]
     pub fn id_func(self) -> Self {
         // Safety: all elements were originally sets and are distinct.
-        unsafe { Self::from_vec_unchecked(self.into_iter().map(|s| s.id_kpair()).collect()) }
+        unsafe { Self::from_vec_unchecked(self.into_iter().map(Set::id_kpair).collect()) }
     }
 
     /// Returns the constant function with domain `self` and value `cst`.
