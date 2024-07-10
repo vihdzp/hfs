@@ -343,6 +343,8 @@ pub struct Levels<T: SetPtr>(NestVec<T>);
 impl<T: SetPtr> NestVec<T> {
     /// Builds the next level from the last.
     ///
+    /// If the built level would be empty, does nothing and returns false instead.
+    ///
     /// ## Safety
     ///
     /// The pointers at the last level must be dereferenceable.
@@ -933,19 +935,22 @@ impl<'a> Compare<'a> {
 
     /// Combines the functions [`Self::eq`] and [`Self::le`].
     fn cmp<F: FnMut(usize, usize) -> bool>(&mut self, other: &Mset, mut cmp: F) -> bool {
+        // We could optimize this by not clearing the buffers twice.
+        // They should already be empty whenever this function is called.
         let mut levels = mem::take(&mut self.other).reuse();
         let mut buf = reuse_vec(mem::take(&mut self.buf));
         levels.push(other);
 
         // Safety: by building our levels manually, we guarantee the type invariants.
         let res = unsafe {
+            let mut idx = levels.level_len();
             while levels.next_level(&mut buf) {
-                let idx = levels.len() - 1;
                 let level = self.set.0.get(idx);
                 if level.is_empty() || !cmp(level.len(), levels.get(idx).len()) {
                     self.other = levels.reuse();
                     return false;
                 }
+                idx += 1;
             }
 
             self.set.subset(levels.as_levels())
