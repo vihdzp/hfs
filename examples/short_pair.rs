@@ -16,51 +16,36 @@ fn spair(x: Set, y: Set) -> Set {
 
 /// Splits a short pair.
 fn ssplit(x: &Set) -> Option<(&Set, &Set)> {
-    match x.as_slice() {
-        [fst, snd] => {
-            match fst.as_slice() {
-                [a] => {
-                    if snd == a {
-                        return Some((a, a));
-                    }
+    // Test whether fst = x and snd = {x, y} for some x, y.
+    fn test<'a>(fst: &'a Set, snd: &'a Set) -> Option<(&'a Set, &'a Set)> {
+        match snd.as_slice() {
+            [a] => {
+                if fst == a {
+                    Some((a, a))
+                } else {
+                    None
                 }
-                [a, b] => {
-                    if snd == a {
-                        return Some((a, b));
-                    }
-                    if snd == b {
-                        return Some((b, a));
-                    }
-                }
-                _ => {}
-            };
-
-            match snd.as_slice() {
-                [a] => {
-                    if fst == a {
-                        Some((a, a))
-                    } else {
-                        None
-                    }
-                }
-                [a, b] => {
-                    if fst == a {
-                        Some((a, b))
-                    } else if fst == b {
-                        Some((b, a))
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
             }
+            [a, b] => {
+                if fst == a {
+                    Some((a, b))
+                } else if fst == b {
+                    Some((b, a))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
+    }
 
+    match x.as_slice() {
+        [fst, snd] => test(fst, snd).or_else(|| test(snd, fst)),
         _ => None,
     }
 }
 
-/// An interesting coincidence: 2 = (0, 0).
+/// A fun coincidence: 2 = (0, 0).
 fn main() {
     let nat = Set::nat(2);
     let (a, b) = ssplit(&nat).unwrap();
