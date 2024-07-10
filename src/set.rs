@@ -594,6 +594,16 @@ impl Set {
         res
     }
 
+    /// Set pair {x, y} = {x} + {y}. Does not check whether x ≠ y.
+    ///
+    /// ## Safety
+    ///
+    /// You must guarantee that both sets are distinct.
+    #[must_use]
+    pub unsafe fn pair_unchecked(self, other: Self) -> Self {
+        Self(self.0.pair(other.0))
+    }
+
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
     /// by applying a function. Does not verify that the mapped elements are distinct.
     ///
@@ -645,7 +655,6 @@ impl<T> Kpair<T> {
             Self::Distinct(x, y)
         }
     }
-
 
     /// Returns the first entry.
     pub fn into_fst(self) -> T {
