@@ -12,9 +12,9 @@ version = "0.1.2"
 
 [dependencies]
 bitvec = "1.0"
+concat-idents = "1.1"
 derive_more = "0.99"
 smallvec = "1.13"
 
 [dev-dependencies]
-concat-idents = "1.1"
 gcd = "2.3"

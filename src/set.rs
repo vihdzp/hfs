@@ -90,7 +90,7 @@ impl Mset {
             levels.mod_ahu_gen(
                 0,
                 BTreeMap::new(),
-                |sets, slice, &set| {
+                |sets, slice, set| {
                     // Deduplicate the set.
                     dedup_by(&mut (*set).0, slice, &mut buf, &mut buf_pairs);
                     let children: SmallVec<_> = buf_pairs.iter().map(|(_, k)| *k).collect();

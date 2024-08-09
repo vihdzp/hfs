@@ -509,8 +509,8 @@ impl Mset {
     /// indices that correspond to equal multisets.
     fn choose_uniq_idx(&self) -> Option<usize> {
         // Select the element with the lowest AHU encoding.
-        let vec = Ahu::new_iter(self);
-        vec.iter()
+        Ahu::new_iter(self)
+            .iter()
             .enumerate()
             .min_by_key(|s| s.1)
             .map(|(idx, _)| idx)

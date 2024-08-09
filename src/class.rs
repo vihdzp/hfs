@@ -1,6 +1,7 @@
 //! [`Classes`](Class) of hereditarily finite [`Sets`](Set).
 
 use crate::prelude::*;
+use std::marker::PhantomData;
 
 // -------------------- Iterators -------------------- //
 
@@ -212,40 +213,75 @@ where
     }
 }
 
-/// Shorthand for defining [`Nat`] and [`Zermelo`].
-macro_rules! naturals {
-    ($class: ident, $func: ident, $name: literal) => {
-        #[doc = concat!("The class of ", $name, " naturals ℕ.")]
-        #[derive(Clone, Default)]
-        pub struct $class(usize);
-
-        impl $class {
-            #[doc = concat!("Initializes an iterator over  ", $name, " naturals.")]
-            #[must_use]
-            pub const fn new() -> Self {
-                Self(0)
-            }
-        }
-
-        impl Iterator for $class {
-            type Item = Set;
-
-            fn next(&mut self) -> Option<Set> {
-                let res = Set::$func(self.0);
-                self.0 += 1;
-                Some(res)
-            }
-
-            fn nth(&mut self, n: usize) -> Option<Set> {
-                self.0 += n;
-                self.next()
-            }
-        }
-    };
+/// A trait for a structure representing some injective function from naturals into sets.
+///
+/// ## Safety
+///
+/// The function must be injective, meaning different naturals get mapped to different sets.
+unsafe trait Inj {
+    /// A map from naturals into sets.
+    fn func(n: usize) -> Set;
 }
 
-naturals!(Nat, nat, "von Neumann");
-naturals!(Zermelo, zermelo, "Zermelo");
+/// A common implementation for classes indexed by the naturals.
+#[derive(Clone, Default)]
+pub struct NatClass<T: Inj>(pub usize, PhantomData<T>);
+
+impl<T: Inj> NatClass<T> {
+    /// Initializes a [`NatClass`].
+    pub const fn new() -> Self {
+        Self(0, PhantomData)
+    }
+}
+
+impl<T: Inj> Iterator for NatClass<T> {
+    type Item = Set;
+
+    fn next(&mut self) -> Option<Set> {
+        let res = T::func(self.0);
+        self.0 += 1;
+        Some(res)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Set> {
+        self.0 += n;
+        self.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (usize::MAX, None)
+    }
+}
+
+macro_rules! impl_inj {
+    ($($name: ident, $func: path, $doc: literal),*) => {$(
+        concat_idents::concat_idents!(name_func = $name, Func {
+            #[doc = concat!("A ZST representing [`", stringify!($func), "`].")]
+            pub struct name_func;
+
+            unsafe impl Inj for name_func {
+                fn func(n: usize) -> Set {
+                    $func(n)
+                }
+            }
+
+            #[doc = $doc]
+            pub type $name = NatClass<name_func>;
+        });
+    )*};
+}
+
+impl_inj!(
+    Nat,
+    Set::nat,
+    "The class of naturals ℕ, generated via [`Set::nat`].",
+    Zermelo,
+    Set::zermelo,
+    "The class of Zermelo naturals ℕ, generated via [`Set::zermelo`].",
+    Neumann,
+    Set::neumann,
+    "The von Neumman hierarchy up to V<sub>ω</sub>, generated via [`Set::neumann`]."
+);
 
 /// The universal class.
 ///
@@ -303,7 +339,7 @@ impl Iterator for Univ {
 /// Note that since classes represent potentially infinite collections, it's possible for a piece of
 /// code to hang. For instance,
 ///
-/// ```rust,no_run
+/// ```no_run
 /// # use hfs::prelude::Class;
 /// Class::pred(|_| false).into_iter().next();
 /// ```
@@ -374,6 +410,13 @@ impl Class {
         unsafe { Self::new_unchecked(Zermelo::new()) }
     }
 
+    /// The von Neumann hierarchy up to V<sub>ω</sub>, defined via [`Neumann`].
+    #[must_use]
+    pub fn neumann() -> Self {
+        // Safety: this iterator has no duplicates.
+        unsafe { Self::new_unchecked(Neumann::new()) }
+    }
+
     /// Class specification.
     #[must_use]
     pub fn select<P: FnMut(&Set) -> bool + 'static>(self, pred: P) -> Self {
@@ -440,8 +483,8 @@ impl Class {
     }
 
     /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
-    /// non-empty class.
-    pub fn choose(&mut self) -> Option<Set> {
+    /// non-empty class, by calling `next`.
+    pub fn choose(mut self) -> Option<Set> {
         self.0.next()
     }
 }

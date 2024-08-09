@@ -152,7 +152,7 @@ impl<T> NestVec<T> {
             start = *s;
         } else {
             // Nothing to be built.
-            return true;
+            return false;
         }
         let end = self.data.len();
 
@@ -217,8 +217,7 @@ impl<T: Display> Display for NestVec<T> {
 
 /// Shorthand for the traits our iterators implement.
 macro_rules! traits {
-    ($t: ty, $l: lifetime) => { impl DoubleEndedIterator<Item = $t> + ExactSizeIterator + $l };
-    ($t: ty) => { traits!($t, '_) };
+    ($t: ty) => { impl DoubleEndedIterator<Item = $t> + ExactSizeIterator + '_ };
 }
 
 impl<T> NestVec<T> {
@@ -547,7 +546,7 @@ impl<T: SetPtr> Levels<T> {
     ///
     /// The pointers within this level must be dereferenceable. Moreover, `next` must contain at
     /// least as many values as the next level.
-    pub unsafe fn step_ahu_gen<U, V, F: FnMut(&mut [U], &T) -> Option<V>>(
+    pub unsafe fn step_ahu<U, V, F: FnMut(&mut [U], T) -> Option<V>>(
         &self,
         level: usize,
         cur: &mut Vec<V>,
@@ -559,7 +558,7 @@ impl<T: SetPtr> Levels<T> {
         // Safety: the indexed slice contains as many elements as required due to the invariant on
         // `self`.
         for (i, slice) in self.children_mut_slice(level, next).enumerate() {
-            if let Some(idx) = child_fn(slice, lev.get_unchecked(i)) {
+            if let Some(idx) = child_fn(slice, *lev.get_unchecked(i)) {
                 cur.push(idx);
             } else {
                 return false;
@@ -588,7 +587,7 @@ impl<T: SetPtr> Levels<T> {
     pub unsafe fn mod_ahu_gen<
         U,
         V,
-        F: FnMut(&mut V, &mut [U], &T) -> Option<U>,
+        F: FnMut(&mut V, &mut [U], T) -> Option<U>,
         G: FnMut(&mut V),
     >(
         &self,
@@ -601,7 +600,7 @@ impl<T: SetPtr> Levels<T> {
         let mut next = Vec::new();
 
         for level in (level..self.0.level_len()).rev() {
-            if !self.step_ahu_gen(level, &mut cur, &mut next, |i, j| child_fn(&mut sets, i, j)) {
+            if !self.step_ahu(level, &mut cur, &mut next, |i, j| child_fn(&mut sets, i, j)) {
                 return None;
             }
 
@@ -614,27 +613,6 @@ impl<T: SetPtr> Levels<T> {
 }
 
 impl<'a> Levels<&'a Mset> {
-    /// Performs one step of the modified AHU algorithm.
-    ///
-    /// Transforms some set of values assigned to the children of a level, into values for the
-    /// level, via a specified function. The algorithm stops and returns false if `None` is returned
-    /// by said function.
-    ///
-    /// See [`Self::step_ahu_gen`].
-    ///
-    /// ## Safety
-    ///
-    /// The slice `next` must contain at least as many values as the next level.
-    pub unsafe fn step_ahu<U, V, F: FnMut(&mut [U], &Mset) -> Option<V>>(
-        &self,
-        level: usize,
-        cur: &mut Vec<V>,
-        next: &mut [U],
-        mut child_fn: F,
-    ) -> bool {
-        self.step_ahu_gen(level, cur, next, |i, j| child_fn(i, j))
-    }
-
     /// Performs the modified AHU algorithm up to the specified level.
     ///
     /// Transforms some set of values assigned to the children of a level, into values for the
@@ -646,11 +624,11 @@ impl<'a> Levels<&'a Mset> {
         &self,
         level: usize,
         sets: V,
-        mut child_fn: F,
+        child_fn: F,
         level_fn: G,
     ) -> Option<Vec<U>> {
         // Safety: pointers from a reference are dereferenceable.
-        unsafe { self.mod_ahu_gen(level, sets, |i, j, k| child_fn(i, j, k), level_fn) }
+        unsafe { self.mod_ahu_gen(level, sets, child_fn, level_fn) }
     }
 
     /// The simplest and most common instantiation of [`Self::mod_ahu`], where we simply find unique
@@ -899,7 +877,7 @@ impl<'a> Compare<'a> {
         self.set.0.get(1).len()
     }
 
-    /// Combines the functions [`Self::eq`] and [`Self::le`].
+    /// Combines the functions [`Self::eq`], [`Self::le`], and [`Self::ge`].
     fn cmp_with<F: FnMut(usize, usize) -> bool>(&mut self, other: &Mset, mut cmp: F) -> bool {
         // We could optimize this by not clearing the buffers twice. They should already be empty
         // whenever this function is called.

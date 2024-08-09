@@ -3,20 +3,19 @@
 #![cfg(test)]
 
 use crate::prelude::*;
-use concat_idents::concat_idents;
 
 /// Creates analogous tests for [`Set`] and [`Mset`].
 macro_rules! test {
     ($($name: ident),*) => {
         $(
-            concat_idents!(fn_name = mset, $name {
+            concat_idents::concat_idents!(fn_name = mset, $name {
                 #[test]
                 fn fn_name() {
                     Mset::$name();
                 }
             });
 
-            concat_idents!(fn_name = set, $name {
+            concat_idents::concat_idents!(fn_name = set, $name {
                 #[test]
                 fn fn_name() {
                     Set::$name();
@@ -26,13 +25,20 @@ macro_rules! test {
     };
 }
 
-/// Asserts that two booleans compare in the expected manner.
-macro_rules! assert_cmp {
+/// Asserts that two booleans are equal. If they aren't, a string equal to either a whitespace or `"
+/// not "` is passed to the formatting string, depending on the expected result.
+///
+/// ```
+/// # let (expected, compare) = (true, true);
+/// // If `expected` and `!compare`, this fails with "b2 is not true".
+/// // If `!expected` and `compare`, this fails with "b2 is true".
+/// assert_cmp!(expected, compare, "b2 is{}true");
+/// ```
+macro_rules! assert_beq {
     ($expect: expr, $cmp: expr, $msg: literal) => {
         let expect = $expect;
-        let cmp = $cmp;
-        let not = if expect { " not " } else { " " };
-        if expect != cmp {
+        if expect != $cmp {
+            let not = if expect { " not " } else { " " };
             panic!($msg, not);
         }
     };
@@ -130,13 +136,13 @@ trait Suite: SetTrait {
     fn _eq() {
         for (i, _, set_1) in Self::suite() {
             for (j, _, set_2) in Self::suite() {
-                assert_cmp!(
+                assert_beq!(
                     i == j,
                     set_1 == set_2,
                     "set equality fail at {i}, {j}: {set_1}{}equal to {set_2}"
                 );
 
-                assert_cmp!(
+                assert_beq!(
                     i == j,
                     set_1.partial_cmp(&set_2) == Some(Ordering::Equal),
                     "set equality fail at {i}, {j}: {set_1}{}equal to {set_2}"
@@ -151,13 +157,13 @@ trait Suite: SetTrait {
             for (j, _, set_2) in Self::suite() {
                 let subset = set_1.iter().all(|s| set_1.count(s) <= set_2.count(s));
 
-                assert_cmp!(
+                assert_beq!(
                     subset,
                     set_1 <= set_2,
                     "set equality fail at {i}, {j}: {set_1}{}a subset of {set_2}"
                 );
 
-                assert_cmp!(
+                assert_beq!(
                     subset,
                     set_1.partial_cmp(&set_2).is_some_and(Ordering::is_le),
                     "set equality fail at {i}, {j}: {set_1}{}a subset of {set_2}"
@@ -171,7 +177,7 @@ trait Suite: SetTrait {
         for (i, _, set_1) in Self::suite() {
             for (j, _, set_2) in Self::suite() {
                 let exp = Self::MEM.contains(&(i, j));
-                assert_cmp!(
+                assert_beq!(
                     exp,
                     set_2.contains(&set_1),
                     "set membership fail at {i}, {j}: {set_1}{}a member of {set_2}"
