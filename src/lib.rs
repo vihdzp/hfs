@@ -111,7 +111,7 @@ pub trait SetTrait:
     /// Removes all elements from the set.
     fn clear(&mut self) {
         // Safety: The empty set is valid for both types.
-        unsafe { self._as_mut_vec() }.clear();
+        unsafe { self._as_mut_vec().clear() }
     }
 
     /// Set cardinality.
@@ -311,10 +311,21 @@ pub trait SetTrait:
         self < other
     }
 
+    /// Determines whether an iterator outputs a given set.
+    ///
+    /// This is somewhat more efficient than simply testing equality with each element separately,
+    /// as it computes the [`Compare`] structure for `other` only once.
+    fn contains_iter<I: IntoIterator>(iter: I, other: &Self) -> bool
+    where
+        I::Item: AsRef<Mset>,
+    {
+        let mut cmp = Compare::new(other.as_ref());
+        iter.into_iter().any(|set| cmp.eq(set.as_ref()))
+    }
+
     /// Membership relation ∈.
     fn contains(&self, other: &Self) -> bool {
-        let mut cmp = Compare::new(other.as_ref());
-        self.iter().any(|set| cmp.eq(set.as_ref()))
+        Self::contains_iter(self.iter(), other)
     }
 
     /*

@@ -35,7 +35,7 @@ pub(crate) fn btree_index<K: Ord>(tree: &mut BTreeMap<K, usize>, key: K) -> usiz
 pub struct NestVec<T> {
     /// The i-th element of the array represents the start point for the i-th level in the data
     /// array.
-    indices: SmallVec<usize>,
+    indices: Vec<usize>,
     /// Stores all the data for all levels.
     data: Vec<T>,
 }
@@ -51,7 +51,7 @@ impl<T> Default for NestVec<T> {
 impl<T> FromIterator<T> for NestVec<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self {
-            indices: smallvec![0],
+            indices: vec![0],
             data: iter.into_iter().collect(),
         }
     }
@@ -62,7 +62,7 @@ impl<T> NestVec<T> {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            indices: SmallVec::new(),
+            indices: Vec::new(),
             data: Vec::new(),
         }
     }

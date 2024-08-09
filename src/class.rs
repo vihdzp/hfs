@@ -225,10 +225,12 @@ unsafe trait Inj {
 
 /// A common implementation for classes indexed by the naturals.
 #[derive(Clone, Default)]
+#[allow(clippy::module_name_repetitions)]
 pub struct NatClass<T: Inj>(pub usize, PhantomData<T>);
 
 impl<T: Inj> NatClass<T> {
     /// Initializes a [`NatClass`].
+    #[must_use]
     pub const fn new() -> Self {
         Self(0, PhantomData)
     }
@@ -237,31 +239,37 @@ impl<T: Inj> NatClass<T> {
 impl<T: Inj> Iterator for NatClass<T> {
     type Item = Set;
 
+    // To uphold the condition that our class outputs no repeated elements, even in the extreme case
+    // where we manage to exhaust the iterator, we stop right before outputting the element that
+    // corresponds to `usize::MAX`.
     fn next(&mut self) -> Option<Set> {
         let res = T::func(self.0);
-        self.0 += 1;
+        self.0 = self.0.checked_add(1)?;
         Some(res)
     }
 
     fn nth(&mut self, n: usize) -> Option<Set> {
-        self.0 += n;
+        self.0 = self.0.saturating_add(n);
         self.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (usize::MAX, None)
+        let len = usize::MAX - self.0;
+        (len, Some(len))
     }
 }
 
-macro_rules! impl_inj {
-    ($($name: ident, $func: path, $doc: literal),*) => {$(
+/// Implements our instances of [`NatClass`].
+macro_rules! impl_nat {
+    ($($name: ident, $func: ident, $doc: literal),*) => {$(
         concat_idents::concat_idents!(name_func = $name, Func {
-            #[doc = concat!("A ZST representing [`", stringify!($func), "`].")]
+            #[doc = concat!("A ZST representing [`Set::", stringify!($func), "`].")]
             pub struct name_func;
 
+            // Safety: our function is injective.
             unsafe impl Inj for name_func {
                 fn func(n: usize) -> Set {
-                    $func(n)
+                    Set::$func(n)
                 }
             }
 
@@ -271,15 +279,15 @@ macro_rules! impl_inj {
     )*};
 }
 
-impl_inj!(
+impl_nat!(
     Nat,
-    Set::nat,
+    nat,
     "The class of naturals ℕ, generated via [`Set::nat`].",
     Zermelo,
-    Set::zermelo,
+    zermelo,
     "The class of Zermelo naturals ℕ, generated via [`Set::zermelo`].",
     Neumann,
-    Set::neumann,
+    neumann,
     "The von Neumman hierarchy up to V<sub>ω</sub>, generated via [`Set::neumann`]."
 );
 
@@ -349,8 +357,8 @@ impl Iterator for Univ {
 ///
 /// ## Invariants
 ///
-/// Every two elements in a [`Class`] must be distinct. **Unsafe code can perform optimizations
-/// contingent on this.**
+/// Every two elements outputted by a [`Class`] must be distinct. **Unsafe code can perform
+/// optimizations contingent on this.**
 #[derive(IntoIterator)]
 pub struct Class(Box<dyn Iterator<Item = Set>>);
 
@@ -380,6 +388,14 @@ impl Class {
     pub fn new<I: Iterator<Item = Set> + 'static>(iter: I) -> Self {
         // Safety: we are deduplicating the iteraor.
         unsafe { Self::new_unchecked(Dedup::new(iter)) }
+    }
+
+    /// Determines whether a class contains a given set.
+    ///
+    /// This might cause the code to hang.
+    #[must_use]
+    pub fn contains(self, set: &Set) -> bool {
+        Set::contains_iter(self, set)
     }
 
     /// The empty class Ø.
@@ -484,6 +500,7 @@ impl Class {
 
     /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a
     /// non-empty class, by calling `next`.
+    #[must_use]
     pub fn choose(mut self) -> Option<Set> {
         self.0.next()
     }
