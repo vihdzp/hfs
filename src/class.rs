@@ -1,7 +1,6 @@
 //! [`Classes`](Class) of hereditarily finite [`Sets`](Set).
 
 use crate::prelude::*;
-use std::marker::PhantomData;
 
 // -------------------- Iterators -------------------- //
 
@@ -48,34 +47,64 @@ impl<I: Iterator<Item = Set>> Iterator for Dedup<I> {
 /// We make no guarantee on the order in which elements are returned, other than the fact that each
 /// iterator will be called until it returns `None`, even in the presence of infinite iterators.
 #[derive(Clone, Default)]
-pub struct Interleave<I: Iterator> {
-    /// The iterators to interleave.
-    iters: Vec<I>,
+pub struct Interleave<I: IntoIterator, J: Iterator<Item = I>> {
+    /// The iterator which outputs other iterators.
+    iter: J,
+    /// The iterators we are currently interleaving.
+    vec: Vec<I::IntoIter>,
     /// The element from which we get the next iterator.
     index: usize,
 }
 
-impl<I: Iterator> Interleave<I> {
-    /// Interleaves a set of iterators.
+impl<I: IntoIterator, J: Iterator<Item = I>> Interleave<I, J> {
+    /// Interleaves an iterator over iterators.
     #[must_use]
-    pub const fn new(iters: Vec<I>) -> Self {
-        Self { iters, index: 0 }
+    pub const fn new(iter: J) -> Self {
+        Self {
+            iter,
+            vec: Vec::new(),
+            index: 0,
+        }
     }
 }
 
-impl<I: Iterator> Iterator for Interleave<I> {
+impl<I: Iterator> Interleave<I, std::iter::Empty<I>> {
+    /// Interleaves a vector of iterators.
+    ///
+    /// This instantiation allows for some optimization in `next`, as there will be no further
+    /// iterators to add.
+    #[must_use]
+    pub const fn new_vec(vec: Vec<I>) -> Self {
+        Self {
+            iter: std::iter::empty(),
+            vec,
+            index: 0,
+        }
+    }
+}
+
+impl<I: IntoIterator, J: Iterator<Item = I>> Iterator for Interleave<I, J> {
     type Item = I::Item;
 
     fn next(&mut self) -> Option<I::Item> {
         // Attempts to get an element from each iterator.
-        while !self.iters.is_empty() {
+        loop {
             // Wrap index around.
-            debug_assert!(self.index <= self.iters.len());
-            if self.index >= self.iters.len() {
+            let len = self.vec.len();
+            debug_assert!(self.index <= len);
+            if self.index >= len {
                 self.index = 0;
+                if let Some(next) = self.iter.next() {
+                    self.vec.push(next.into_iter());
+                }
+
+                // There's no iterators remaining.
+                if self.vec.is_empty() {
+                    return None;
+                }
             }
 
-            let next = self.iters[self.index].next();
+            let next = self.vec[self.index].next();
             if next.is_some() {
                 // By increasing the index, we guarantee we get elements out of every iterator.
                 self.index += 1;
@@ -83,10 +112,8 @@ impl<I: Iterator> Iterator for Interleave<I> {
             }
 
             // Remove spent iterator.
-            self.iters.swap_remove(self.index);
+            drop(self.vec.swap_remove(self.index));
         }
-
-        None
     }
 }
 
@@ -226,13 +253,13 @@ unsafe trait Inj {
 /// A common implementation for classes indexed by the naturals.
 #[derive(Clone, Default)]
 #[allow(clippy::module_name_repetitions)]
-pub struct NatClass<T: Inj>(pub usize, PhantomData<T>);
+pub struct NatClass<T: Inj>(pub usize, std::marker::PhantomData<T>);
 
 impl<T: Inj> NatClass<T> {
     /// Initializes a [`NatClass`].
     #[must_use]
     pub const fn new() -> Self {
-        Self(0, PhantomData)
+        Self(0, std::marker::PhantomData)
     }
 }
 
@@ -353,7 +380,7 @@ impl Iterator for Univ {
 /// ```
 ///
 /// will run forever, unsucessfully testing the predicate on each set. This limitation means that
-/// certain relations, like membership or subsets, cannot be defined.
+/// certain relations, like membership or subsets, cannot be determined in general.
 ///
 /// ## Invariants
 ///
@@ -392,7 +419,7 @@ impl Class {
 
     /// Determines whether a class contains a given set.
     ///
-    /// This might cause the code to hang.
+    /// This will hang indefinitely if the class is infinite and the set is not contained in it.
     #[must_use]
     pub fn contains(self, set: &Set) -> bool {
         Set::contains_iter(self, set)
@@ -448,11 +475,18 @@ impl Class {
         Self::univ().select(pred)
     }
 
+    /// Class union over an iterator.
+    ///
+    /// This internally uses [`Interleave`] to get the elements out of each set.
+    pub fn union_iter<I: Iterator<Item = Self> + 'static>(iter: I) -> Self {
+        Self::new(Interleave::new(iter.into_iter()))
+    }
+
     /// Class union over a vector.
     ///
     /// This internally uses [`Interleave`] to get the elements out of each set.
     pub fn union_vec(vec: Vec<Self>) -> Self {
-        Self::new(Interleave::new(
+        Self::new(Interleave::new_vec(
             vec.into_iter().map(IntoIterator::into_iter).collect(),
         ))
     }
