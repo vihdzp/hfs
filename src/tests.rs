@@ -34,10 +34,10 @@ macro_rules! test {
 /// not "` is passed to the formatting string, depending on the expected result.
 ///
 /// ```
-/// # let (expected, compare) = (true, true);
-/// // If `expected` and `!compare`, this fails with "b2 is not true".
-/// // If `!expected` and `compare`, this fails with "b2 is true".
-/// assert_cmp!(expected, compare, "b2 is{}true");
+/// # let (expect, cmp) = (true, true);
+/// // If `expect` and `!cmp`, this fails with "cmp is not true".
+/// // If `!expect` and `cmp`, this fails with "cmp is true".
+/// assert_cmp!(expect, cmp, "cmp is{}true");
 /// ```
 macro_rules! assert_beq {
     ($expect: expr, $cmp: expr, $msg: literal) => {

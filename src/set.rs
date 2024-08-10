@@ -45,9 +45,9 @@ impl FromStr for Set {
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
 /// - The first buffer is an intermediary buffer for calculations. It must be empty when this
-/// function is called, but is emptied at the end of it.
+///   function is called, but is emptied at the end of it.
 /// - The second buffer is cleared within the function. At its output, it contains the set of
-/// deduplicated keys with their indices in the original set.
+///   deduplicated keys with their indices in the original set.
 ///
 /// ## Safety
 ///
@@ -82,23 +82,29 @@ impl Mset {
     /// See also [`Self::into_set`].
     #[must_use]
     pub fn is_set_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
-        Levels::new_iter(iter)
-            .mod_ahu(
-                0,
-                BTreeMap::new(),
-                |sets, slice, _| {
-                    // Find duplicate elements.
-                    slice.sort_unstable();
-                    if consecutive_eq(&slice) {
-                        return None;
-                    }
+        // Find unique labels for the sets.
+        let levels = Levels::new_iter(iter).mod_ahu(
+            0,
+            BTreeMap::new(),
+            |sets, slice, _| {
+                // Find duplicate elements.
+                slice.sort_unstable();
+                if consecutive_eq(slice) {
+                    return None;
+                }
 
-                    let children: SmallVec<_> = slice.iter().copied().collect();
-                    Some(btree_index(sets, children))
-                },
-                BTreeMap::clear,
-            )
-            .is_some()
+                let children: SmallVec<_> = slice.iter().copied().collect();
+                Some(btree_index(sets, children))
+            },
+            BTreeMap::clear,
+        );
+
+        if let Some(mut slice) = levels {
+            slice.sort_unstable();
+            !consecutive_eq(&slice)
+        } else {
+            false
+        }
     }
 
     /// Checks whether the multiset is in fact a set. This property is checked hereditarily.
@@ -236,6 +242,7 @@ impl Set {
     /// Returns whether a slice over `Set` has no duplicate elements.
     ///
     /// This is analogous to [`Mset::is_set`], but optimizes out the hereditary check.
+    #[must_use]
     pub fn is_set(slice: &[Self]) -> bool {
         Self::is_set_iter(slice)
     }
@@ -244,18 +251,18 @@ impl Set {
     ///
     /// This is analogous to [`Mset::flatten`], but optimizes out the hereditary check.
     pub fn flatten(mut vec: Vec<Self>) -> Self {
+        dbg!(&vec);
         // We can optimize over `Mset::flatten` by not checking the no-duplicate property on things
         // we already know to be sets.
-        let mut keys = Levels::new_iter(vec.iter().map(AsRef::as_ref)).ahu(0);
-        keys.sort_unstable();
-        keys.dedup();
+        let keys = Levels::new_iter(vec.iter().map(AsRef::as_ref)).ahu(0);
+        let mut buf = Vec::new();
+        let mut buf_pairs = Vec::new();
 
-        for idx in keys.into_iter().rev() {
-            vec.swap_remove(idx);
+        // Safety: We remove duplicates.
+        unsafe {
+            dedup_by(&mut vec, &keys, &mut buf, &mut buf_pairs);
+            Self::from_vec_unchecked(vec)
         }
-
-        // Safety: We just removed duplicates.
-        unsafe { Self::from_vec_unchecked(vec) }
     }
 
     /// Builds the set from a vector of sets. Does not deduplicate the set.
@@ -271,6 +278,7 @@ impl Set {
     /// Transmutes a `Vec<Set>` into a [`Set`], first checking the type invariants.
     ///
     /// To instead flatten the vector, see [`Self::flatten`].
+    #[must_use]
     pub fn from_vec(vec: Vec<Self>) -> Option<Self> {
         if Self::is_set(&vec) {
             // Safety: we just checked the invariant.
@@ -360,7 +368,6 @@ impl<'a> IntoIterator for &'a mut Set {
 // -------------------- SetTrait -------------------- //
 
 impl crate::Seal for Set {}
-
 impl SetTrait for Set {
     // -------------------- Basic methods -------------------- //
 

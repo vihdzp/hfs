@@ -501,6 +501,9 @@ impl Mset {
     }
 
     /// Sum over an iterator.
+    ///
+    /// This is not implemented for [`Set`], as the method would require directly collecting the
+    /// iterator into a vector anyways.
     pub fn sum_iter<I: IntoIterator<Item = Self>>(iter: I) -> Self {
         iter.into_iter().flatten().collect()
     }

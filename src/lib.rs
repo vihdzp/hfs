@@ -107,6 +107,8 @@ pub trait SetTrait:
     }
 
     /// Flattens a vector of sets.   
+    ///
+    /// See [`Mset::from`] and [`Set::flatten`].
     #[deprecated = "internal method, use Mset::from or Set::flatten."]
     fn _flatten_vec(vec: Vec<Self>) -> Self;
 
@@ -115,7 +117,7 @@ pub trait SetTrait:
         // Safety: The empty set is valid for both types.
         #[allow(deprecated)]
         unsafe {
-            self._as_mut_vec().clear()
+            self._as_mut_vec().clear();
         }
     }
 
@@ -171,7 +173,7 @@ pub trait SetTrait:
 
     /// Gets the element out of a singleton set.
     ///
-    ///  Returns `None` if this is not a singleton.
+    /// Returns `None` if this is not a singleton.
     fn into_singleton(self) -> Option<Self>;
 
     /// References the element in a singleton set.
