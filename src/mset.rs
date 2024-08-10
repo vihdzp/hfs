@@ -537,6 +537,7 @@ impl Mset {
     }
 
     /// Whether the multiset contains duplicate elements.
+    #[must_use]
     pub fn duplicate(&self) -> bool {
         Levels::new(self).duplicate(1)
     }

@@ -3,9 +3,9 @@
 // The actual prelude.
 pub use crate::{
     class::{self, Class},
+    levels::Ahu,
     mset::{Mset, SetError},
     set::Set,
-    levels::Ahu,
     SetTrait,
 };
 
@@ -21,6 +21,6 @@ pub(crate) use std::{
     cmp::Ordering,
     collections::{btree_map::Entry, BTreeMap},
     fmt::{Debug, Display, Formatter, Result as FmtResult, Write},
-    hint, mem, ptr, slice,
+    hint, iter, mem, ptr, slice,
     str::FromStr,
 };

@@ -283,7 +283,7 @@ impl SetPtr for *mut Mset {
     }
 
     unsafe fn extend(vec: &mut Vec<Self>, set: Self) {
-        vec.extend((*set).iter_mut().map(std::ptr::from_mut));
+        vec.extend((*set).iter_mut().map(ptr::from_mut));
     }
 }
 
@@ -332,7 +332,7 @@ impl<T: SetPtr> NestVec<T> {
     /// You must guarantee the type invariants for [`Levels`].
     #[must_use]
     pub unsafe fn as_levels(&self) -> &Levels<T> {
-        &*std::ptr::from_ref(self).cast()
+        &*ptr::from_ref(self).cast()
     }
 
     /// Initializes a [`Levels`] from a nested vector, whose missing levels are built.
@@ -652,6 +652,7 @@ impl<'a> Levels<&'a Mset> {
     }
 
     /// Determines if there's duplicate elements at a given level.
+    #[must_use]
     pub fn duplicate(&self, level: usize) -> bool {
         let mut levels = self.ahu(level);
         levels.sort_unstable();

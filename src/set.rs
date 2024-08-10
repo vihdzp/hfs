@@ -237,11 +237,11 @@ impl Set {
         !Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).duplicate(0)
     }
 
-    /// Returns whether a `Vec<Set>` has no duplicate elements.
+    /// Returns whether a `&[Set]` has no duplicate elements.
     ///
     /// This is analogous to [`Mset::is_set`], but optimizes out the hereditary check.
     #[must_use]
-    pub fn is_set(slice: &Vec<Self>) -> bool {
+    pub fn is_set(slice: &[Self]) -> bool {
         Self::is_set_iter(slice.iter())
     }
 
@@ -528,7 +528,7 @@ impl SetTrait for Set {
     }
 
     // -------------------- Relations -------------------- //
-    
+
     fn disjoint_vec(vec: Vec<Self>) -> bool {
         Mset::disjoint_vec(Mset::cast_vec(vec))
     }

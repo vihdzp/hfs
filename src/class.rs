@@ -68,7 +68,7 @@ impl<I: IntoIterator, J: Iterator<Item = I>> Interleave<I, J> {
     }
 }
 
-impl<I: Iterator> Interleave<I, std::iter::Empty<I>> {
+impl<I: Iterator> Interleave<I, iter::Empty<I>> {
     /// Interleaves a vector of iterators.
     ///
     /// This instantiation allows for some optimization in `next`, as there will be no further
@@ -76,7 +76,7 @@ impl<I: Iterator> Interleave<I, std::iter::Empty<I>> {
     #[must_use]
     pub const fn new_vec(vec: Vec<I>) -> Self {
         Self {
-            iter: std::iter::empty(),
+            iter: iter::empty(),
             vec,
             index: 0,
         }
@@ -430,7 +430,7 @@ impl Class {
     #[must_use]
     pub fn empty() -> Self {
         // Safety: this iterator has no duplicates.
-        unsafe { Self::new_unchecked(std::iter::empty()) }
+        unsafe { Self::new_unchecked(iter::empty()) }
     }
 
     /// The universal class, defined via [`Univ`].
