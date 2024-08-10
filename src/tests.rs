@@ -276,6 +276,50 @@ trait Suite: SetTrait {
             }
         }
     }
+
+    /// Test [`SetTrait::disjoint`].
+    fn _disjoint() {
+        for (i, _, set_1) in Self::suite() {
+            for (j, _, set_2) in Self::suite() {
+                assert_beq!(
+                    set_1.clone().inter(set_2.clone()).is_empty(),
+                    set_1.disjoint(&set_2),
+                    "disjoint fail at {i}, {j}: {set_1} is{}disjoint with {set_2}"
+                );
+            }
+        }
+    }
+
+    /// Test [`SetTrait::disjoint_set`].
+    fn _disjoint_set() {
+        for (i, _, set) in Self::suite() {
+            let expect = set
+                .clone()
+                .big_inter()
+                .map(|set| set.is_empty())
+                .unwrap_or_default();
+
+            assert_beq!(
+                expect,
+                set.disjoint_set(),
+                "disjoint fail at {i}: {set} is{}disjoint"
+            );
+        }
+    }
+
+    /// Test [`SetTrait::disjoint_pairwise_set`].
+    fn _disjoint_pairwise_set() {
+        for (i, _, set) in Self::suite() {
+            let expect =
+                set.iter().map(|c| c.card()).sum::<usize>() == set.clone().big_union().card();
+
+            assert_beq!(
+                expect,
+                set.disjoint_pairwise_set(),
+                "disjoint fail at {i}: {set} is{}pairwise disjoint"
+            );
+        }
+    }
 }
 
 impl Suite for Mset {
@@ -333,9 +377,10 @@ impl Suite for Set {
 }
 
 // Run all the suite functions for [`Mset`] and [`Set`].
+#[rustfmt::skip]
 test!(
     _suite, _empty, _singleton, _pair, _eq, _subset, _contains, _nat, _sum, _union, _inter,
-    _powerset, _choose
+    _powerset, _choose, _disjoint, _disjoint_set, _disjoint_pairwise_set
 );
 
 /// Test [`Mset::is_set`].

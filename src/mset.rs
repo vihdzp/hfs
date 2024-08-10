@@ -278,9 +278,9 @@ impl SetTrait for Mset {
         // Safety: we already know there's at least 2 sets.
         let fst = unsafe { iter.next().unwrap_unchecked().1 };
         let mut sets = BTreeMap::new();
-        for (i, set) in fst.iter().enumerate() {
+        for (i, &set) in fst.iter().enumerate() {
             let el_idx = (0, i);
-            match sets.entry(*set) {
+            match sets.entry(set) {
                 Entry::Vacant(entry) => {
                     entry.insert((smallvec![el_idx], 0));
                 }
@@ -292,9 +292,9 @@ impl SetTrait for Mset {
 
         // Count number of appearances in other sets.
         for (n, slice) in iter {
-            for (i, set) in slice.iter().enumerate() {
+            for (i, &set) in slice.iter().enumerate() {
                 let el_idx = (n, i);
-                match sets.entry(*set) {
+                match sets.entry(set) {
                     Entry::Vacant(entry) => {
                         entry.insert((smallvec![el_idx], 1));
                     }
@@ -346,8 +346,8 @@ impl SetTrait for Mset {
         // Safety: we already know there's at least 2 sets.
         let fst = unsafe { iter.next().unwrap_unchecked() };
         let mut sets = BTreeMap::new();
-        for (i, set) in fst.iter().enumerate() {
-            match sets.entry(*set) {
+        for (i, &set) in fst.iter().enumerate() {
+            match sets.entry(set) {
                 Entry::Vacant(entry) => {
                     entry.insert((smallvec![i], 0));
                 }
@@ -359,8 +359,8 @@ impl SetTrait for Mset {
 
         // Count number of appearances in other sets.
         for slice in iter {
-            for set in slice {
-                match sets.entry(*set) {
+            for &set in slice {
+                match sets.entry(set) {
                     Entry::Vacant(_) => {}
                     Entry::Occupied(mut entry) => {
                         entry.get_mut().1 += 1;
@@ -449,38 +449,42 @@ impl SetTrait for Mset {
     // -------------------- Relations -------------------- //
 
     // See [`Set::inter_vec`].
-    fn disjoint_vec(vec: Vec<Self>) -> bool {
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        let levels = Levels::new_iter(iter);
+
         // Check for trivial cases.
-        if vec.len() <= 1 {
-            return true;
+        let slice = levels.nest_vec().get(0);
+        match slice.len() {
+            // The empty family is not disjoint.
+            0 => return false,
+            // A singleton {x} is only disjoint when x = Ø.
+            1 => return levels.nest_vec().len() == 1,
+            _ => {}
         }
-        let levels = Levels::new_iter(&vec);
 
         let next = levels.ahu(1);
         // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
         let mut iter = unsafe { levels.children_slice(0, &next) };
 
-        // Each entry stores the index where it's found within the first set, and a boolean for
-        // whether it's been seen in every other set.
+        // Each entry stores a boolean for whether it's been seen in every other set.
         //
         // Safety: we already know there's at least 2 sets.
         let fst = unsafe { iter.next().unwrap_unchecked() };
         let mut sets = BTreeMap::new();
-        for (i, set) in fst.iter().enumerate() {
-            sets.insert(*set, (i, false));
+        for &set in fst {
+            sets.insert(set, false);
         }
 
         // Look for appearances in other sets.
         for slice in iter {
-            for set in slice {
-                match sets.entry(*set) {
-                    Entry::Vacant(_) => {}
-                    Entry::Occupied(mut entry) => entry.get_mut().1 = true,
+            for &set in slice {
+                if let Entry::Occupied(mut entry) = sets.entry(set) {
+                    *entry.get_mut() = true;
                 }
             }
 
             // Update counts.
-            sets.retain(|_, (_, count)| {
+            sets.retain(|_, count| {
                 let retain = *count;
                 *count = false;
                 retain
@@ -492,6 +496,47 @@ impl SetTrait for Mset {
         }
 
         false
+    }
+
+    // See [`Mset::union_vec`].
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        let levels = Levels::new_iter(iter);
+        // Check for trivial cases.
+        if levels.nest_vec().get(0).len() <= 1 {
+            return true;
+        }
+
+        let next = levels.ahu(1);
+        // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
+        let mut iter = unsafe { levels.children_slice(0, &next).enumerate() };
+
+        // Each entry stores the index of the set in which it's found.
+        //
+        // Safety: we already know there's at least 2 sets.
+        let (_, fst) = unsafe { iter.next().unwrap_unchecked() };
+        let mut sets = BTreeMap::new();
+        for &set in fst {
+            sets.insert(set, 0);
+        }
+
+        // Look for appearances in other sets.
+        for (i, slice) in iter {
+            for &set in slice {
+                match sets.entry(set) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(i);
+                    }
+
+                    Entry::Occupied(entry) => {
+                        if *entry.get() != i {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
+        true
     }
 
     // -------------------- Axioms -------------------- //

@@ -462,9 +462,8 @@ impl SetTrait for Set {
         // Look for appearances in other sets.
         for slice in iter {
             for set in slice {
-                match sets.entry(*set) {
-                    Entry::Vacant(_) => {}
-                    Entry::Occupied(mut entry) => entry.get_mut().1 = true,
+                if let Entry::Occupied(mut entry) = sets.entry(*set) {
+                    entry.get_mut().1 = true;
                 }
             }
 
@@ -529,8 +528,12 @@ impl SetTrait for Set {
 
     // -------------------- Relations -------------------- //
 
-    fn disjoint_vec(vec: Vec<Self>) -> bool {
-        Mset::disjoint_vec(Mset::cast_vec(vec))
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        Mset::disjoint_iter(iter.into_iter().map(AsRef::as_ref))
+    }
+
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        !Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).duplicate(1)
     }
 }
 

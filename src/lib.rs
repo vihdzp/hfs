@@ -272,7 +272,7 @@ pub trait SetTrait:
 
     /// Intersection over a vector. See [`SetTrait::inter`].
     ///
-    /// The intersection of an empty family would be the universal set, which can't be returned.
+    /// The intersection of an empty family would be the universal class, which can't be returned.
     fn inter_vec(vec: Vec<Self>) -> Option<Self>;
 
     /// Intersection x ∩ y.
@@ -343,16 +343,48 @@ pub trait SetTrait:
         Self::disjoint_pairwise([self, other])
     }
 
-    /// Checks whether a list of sets are disjoint.
+    /// Checks whether a list of sets are [disjoint](https://en.wikipedia.org/wiki/Disjoint_sets),
+    /// meaning their intersection is empty.
+    ///
+    /// An empty family is **not** disjoint, as its intersection is the universal class. Likewise, a
+    /// singleton set is only disjoint when its single element is the empty set.
     ///
     /// For pairwise disjoint sets, see [`SetTrait::disjoint_pairwise`].
-    fn disjoint_vec(vec: Vec<Self>) -> bool;
+    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
 
-    /// Checks whether a list of sets are pairwise disjoint.
+    /// Checks whether a set of sets is [disjoint](https://en.wikipedia.org/wiki/Disjoint_sets),
+    /// meaning its intersection is empty.
+    ///
+    /// An empty set is **not** disjoint, as its intersection is the universal class. Likewise, a
+    /// singleton set is only disjoint when its single element is the empty set.
+    ///
+    /// For pairwise disjoint sets, see [`SetTrait::disjoint_pairwise_set`]. See also
+    /// [`SetTrait::disjoint`].
+    fn disjoint_set(&self) -> bool {
+        Self::disjoint_iter(self.iter())
+    }
+
+    /// Checks whether a list of sets are pairwise
+    /// [disjoint](https://en.wikipedia.org/wiki/Disjoint_sets), meaning the intersection of any two
+    /// of them is empty.
+    ///
+    /// A family with zero or one elements is disjoint, as any pair of distinct elements in it are
+    /// vacuously disjoint.
     ///
     /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_iter`].
-    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
-        !Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).duplicate(1)
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
+
+    /// Checks whether a set of sets is pairwise
+    /// [disjoint](https://en.wikipedia.org/wiki/Disjoint_sets), meaning the intersection of any two
+    /// of its elements is empty.
+    ///
+    /// A set with zero or one elements is disjoint, as any pair of distinct elements in it are
+    /// vacuously disjoint.
+    ///
+    /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_pairwise_set`]. See also
+    /// [`SetTrait::disjoint_pairwise`].
+    fn disjoint_pairwise_set(&self) -> bool {
+        Self::disjoint_pairwise(self.iter())
     }
 
     // -------------------- Axioms -------------------- //
