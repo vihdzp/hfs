@@ -23,7 +23,7 @@ fn int(n: isize) -> Set {
             0 => Set::nat(0).id_kpair(),
             -1 => Set::nat(1).id_kpair(),
             1.. => Set::nat(0).kpair_unchecked(Set::nat(n as usize)),
-            ..=-2 => Set::nat(1).kpair_unchecked(Set::nat((-n) as usize)),
+            ..=-2 => Set::nat(1).kpair_unchecked(Set::nat(n.wrapping_neg() as usize)),
         }
     }
 }
