@@ -448,15 +448,51 @@ impl SetTrait for Mset {
 
     // -------------------- Relations -------------------- //
 
-    /*
-    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
-        todo!()
-    }
+    // See [`Set::inter_vec`].
+    fn disjoint_vec(vec: Vec<Self>) -> bool {
+        // Check for trivial cases.
+        if vec.len() <= 1 {
+            return true;
+        }
+        let levels = Levels::new_iter(&vec);
 
-    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
-        todo!()
+        let next = levels.ahu(1);
+        // Safety: the length of `next` is exactly the sum of cardinalities in the first level.
+        let mut iter = unsafe { levels.children_slice(0, &next) };
+
+        // Each entry stores the index where it's found within the first set, and a boolean for
+        // whether it's been seen in every other set.
+        //
+        // Safety: we already know there's at least 2 sets.
+        let fst = unsafe { iter.next().unwrap_unchecked() };
+        let mut sets = BTreeMap::new();
+        for (i, set) in fst.iter().enumerate() {
+            sets.insert(*set, (i, false));
+        }
+
+        // Look for appearances in other sets.
+        for slice in iter {
+            for set in slice {
+                match sets.entry(*set) {
+                    Entry::Vacant(_) => {}
+                    Entry::Occupied(mut entry) => entry.get_mut().1 = true,
+                }
+            }
+
+            // Update counts.
+            sets.retain(|_, (_, count)| {
+                let retain = *count;
+                *count = false;
+                retain
+            });
+
+            if sets.is_empty() {
+                return true;
+            }
+        }
+
+        false
     }
-    */
 
     // -------------------- Axioms -------------------- //
 
@@ -498,6 +534,11 @@ impl Mset {
     /// Mutably iterate over the elements of the set.
     pub fn iter_mut(&mut self) -> slice::IterMut<Self> {
         self.0.iter_mut()
+    }
+
+    /// Whether the multiset contains duplicate elements.
+    pub fn duplicate(&self) -> bool {
+        Levels::new(self).duplicate(1)
     }
 
     /// Sum over an iterator.

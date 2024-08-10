@@ -232,26 +232,23 @@ impl Set {
     ///
     /// This is analogous to [`Mset::is_set_iter`], but optimizes out the hereditary check.
     pub fn is_set_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
-        // We can optimize over `Mset::is_set` by not checking the no-duplicate property on things
-        // we already know to be sets.
-        let mut keys = Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).ahu(0);
-        keys.sort_unstable();
-        consecutive_eq(&keys)
+        // We can optimize over `Mset::is_set_iter` by not checking the no-duplicate property on
+        // things we already know to be sets.
+        !Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).duplicate(0)
     }
 
-    /// Returns whether a slice over `Set` has no duplicate elements.
+    /// Returns whether a `Vec<Set>` has no duplicate elements.
     ///
     /// This is analogous to [`Mset::is_set`], but optimizes out the hereditary check.
     #[must_use]
-    pub fn is_set(slice: &[Self]) -> bool {
-        Self::is_set_iter(slice)
+    pub fn is_set(slice: &Vec<Self>) -> bool {
+        Self::is_set_iter(slice.iter())
     }
 
     /// Converts `Vec<Set>` into `Set` by removing duplicate elements.
     ///
     /// This is analogous to [`Mset::flatten`], but optimizes out the hereditary check.
     pub fn flatten(mut vec: Vec<Self>) -> Self {
-        dbg!(&vec);
         // We can optimize over `Mset::flatten` by not checking the no-duplicate property on things
         // we already know to be sets.
         let keys = Levels::new_iter(vec.iter().map(AsRef::as_ref)).ahu(0);
@@ -531,70 +528,10 @@ impl SetTrait for Set {
     }
 
     // -------------------- Relations -------------------- //
-
-    /*
-    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
-        // Empty families are disjoint.
-        let levels;
-        if let Some(lev) = Levels::init_iter(iter.into_iter().map(AsRef::as_ref)) {
-            levels = lev.fill();
-        } else {
-            return true;
-        }
-
-        // Empty sets are disjoint.
-        let elements;
-        if let Some(el) = levels.get(1) {
-            elements = el;
-        } else {
-            return true;
-        }
-
-        let mut cur = Vec::new();
-        let mut next = Vec::new();
-        let mut sets = BTreeMap::new();
-
-        // Compute AHU encodings for all but the elements of the union.
-        for level in levels.iter().skip(2).rev() {
-            sets.clear();
-
-            // Safety: the length of `next` is exactly the sum of cardinalities in `level`.
-            unsafe {
-                Levels::step_ahu(level, &mut cur, &mut next, |slice, _| {
-                    slice.sort_unstable();
-                    let children = slice.iter().copied().collect::<SmallVec<_>>();
-                    Some(btree_index(&mut sets, children))
-                });
-            }
-
-            mem::swap(&mut cur, &mut next);
-        }
-
-        // Compute the encodings for the union. Return whether we find anything twice.
-        let mut dummy: Vec<()> = Vec::new();
-        sets.clear();
-
-        // Safety: the length of next is exactly the sum of cardinalities in `elements`.
-        unsafe {
-            Levels::step_ahu(elements, &mut dummy, &mut next, |slice, _| {
-                slice.sort_unstable();
-                let children = slice.iter().copied().collect::<SmallVec<_>>();
-
-                // The values don't matter, but we recycle our BTreeMap instead of creating a new
-                // BTreeSet.
-                if sets.insert(children, 0).is_some() {
-                    None
-                } else {
-                    Some(())
-                }
-            })
-        }
+    
+    fn disjoint_vec(vec: Vec<Self>) -> bool {
+        Mset::disjoint_vec(Mset::cast_vec(vec))
     }
-
-    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(_iter: I) -> bool {
-        todo!()
-    }
-    */
 }
 
 // -------------------- Set specific -------------------- //

@@ -18,11 +18,11 @@ macro_rules! smallvec {
 }
 
 pub mod class;
+pub mod levels;
 pub mod mset;
 pub mod prelude;
 pub mod set;
 mod tests;
-pub mod utils;
 
 use prelude::*;
 
@@ -338,7 +338,6 @@ pub trait SetTrait:
         Self::contains_iter(self.iter(), other)
     }
 
-    /*
     /// Checks whether two sets are disjoint.
     fn disjoint(&self, other: &Self) -> bool {
         Self::disjoint_pairwise([self, other])
@@ -347,13 +346,14 @@ pub trait SetTrait:
     /// Checks whether a list of sets are disjoint.
     ///
     /// For pairwise disjoint sets, see [`SetTrait::disjoint_pairwise`].
-    fn disjoint_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
+    fn disjoint_vec(vec: Vec<Self>) -> bool;
 
     /// Checks whether a list of sets are pairwise disjoint.
     ///
     /// For non-pairwise disjoint sets, see [`SetTrait::disjoint_iter`].
-    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool;
-    */
+    fn disjoint_pairwise<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        !Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).duplicate(1)
+    }
 
     // -------------------- Axioms -------------------- //
 

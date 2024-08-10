@@ -650,6 +650,13 @@ impl<'a> Levels<&'a Mset> {
         // Safety: `Some(x) != None`.
         unsafe { ahu.unwrap_unchecked() }
     }
+
+    /// Determines if there's duplicate elements at a given level.
+    pub fn duplicate(&self, level: usize) -> bool {
+        let mut levels = self.ahu(level);
+        levels.sort_unstable();
+        consecutive_eq(&levels)
+    }
 }
 
 /// The [Aho–Hopcroft–Ullman](https://www.baeldung.com/cs/isomorphic-trees) (AHU) encoding for an

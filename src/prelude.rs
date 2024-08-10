@@ -5,14 +5,14 @@ pub use crate::{
     class::{self, Class},
     mset::{Mset, SetError},
     set::Set,
-    utils::Ahu,
+    levels::Ahu,
     SetTrait,
 };
 
 // Convenient imports within the crate.
 pub(crate) use crate::{
     consecutive_eq,
-    utils::{btree_index, Compare, Levels},
+    levels::{btree_index, Compare, Levels},
     SmallVec,
 };
 pub(crate) use bitvec::prelude::*;
