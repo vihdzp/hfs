@@ -21,7 +21,7 @@ pub struct Set(Mset);
 impl From<Set> for Vec<Set> {
     fn from(set: Set) -> Self {
         // Safety: elements of `Set` are valid for `Set`.
-        unsafe { Mset::cast_vec(set.0 .0) }
+        unsafe { Set::cast_vec(set.0 .0) }
     }
 }
 
@@ -36,7 +36,7 @@ impl FromStr for Set {
     type Err = SetError;
 
     fn from_str(s: &str) -> Result<Self, SetError> {
-        s.parse().map(Mset::into_set)
+        s.parse().map(Mset::flatten)
     }
 }
 
@@ -44,10 +44,9 @@ impl FromStr for Set {
 
 /// Orders and deduplicates a set based on the corresponding keys.
 ///
-/// The first buffer is an intermediary buffer for calculations. It must be empty when this function
-/// is called, but is emptied at the end of it.
-///
-/// The second buffer is cleared within the function. At its output, it contains the set of
+/// - The first buffer is an intermediary buffer for calculations. It must be empty when this
+/// function is called, but is emptied at the end of it.
+/// - The second buffer is cleared within the function. At its output, it contains the set of
 /// deduplicated keys with their indices in the original set.
 ///
 /// ## Safety
@@ -77,9 +76,42 @@ unsafe fn dedup_by<T: Default, U: Ord + Copy>(
 }
 
 impl Mset {
+    /// Checks whether the multiset whose elements are given by an iterator is in fact a set. This
+    /// property is checked hereditarily.
+    ///
+    /// See also [`Self::into_set`].
+    #[must_use]
+    pub fn is_set_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        Levels::new_iter(iter)
+            .mod_ahu(
+                0,
+                BTreeMap::new(),
+                |sets, slice, _| {
+                    // Find duplicate elements.
+                    slice.sort_unstable();
+                    if consecutive_eq(&slice) {
+                        return None;
+                    }
+
+                    let children: SmallVec<_> = slice.iter().copied().collect();
+                    Some(btree_index(sets, children))
+                },
+                BTreeMap::clear,
+            )
+            .is_some()
+    }
+
+    /// Checks whether the multiset is in fact a set. This property is checked hereditarily.
+    ///
+    /// See also [`Self::into_set`].
+    #[must_use]
+    pub fn is_set(&self) -> bool {
+        Self::is_set_iter(self)
+    }
+
     /// Flattens a multiset into a set hereditarily.
     #[must_use]
-    pub fn into_set(mut self) -> Set {
+    pub fn flatten(mut self) -> Set {
         let levels = Levels::new_mut(&mut self);
         let mut buf = Vec::new();
         let mut buf_pairs = Vec::new();
@@ -100,41 +132,8 @@ impl Mset {
             );
         }
 
-        Set(self)
-    }
-
-    /// Checks whether the multiset is in fact a set. This property is checked hereditarily.
-    ///
-    /// See also [`Self::into_set`].
-    #[must_use]
-    pub fn is_set(&self) -> bool {
-        Levels::new(self)
-            .mod_ahu(
-                1,
-                BTreeMap::new(),
-                |sets, slice, _| {
-                    // Find duplicate elements.
-                    slice.sort_unstable();
-                    if has_consecutive(slice) {
-                        return None;
-                    }
-
-                    let children: SmallVec<_> = slice.iter().copied().collect();
-                    Some(btree_index(sets, children))
-                },
-                BTreeMap::clear,
-            )
-            .is_some()
-    }
-
-    /// Transmutes an [`Mset`] into a [`Set`], first checking the type invariants.
-    #[must_use]
-    pub fn into_set_checked(self) -> Option<Set> {
-        if self.is_set() {
-            Some(Set(self))
-        } else {
-            None
-        }
+        // Safety: we just checked the invariant.
+        unsafe { self.into_set_unchecked() }
     }
 
     /// Transmutes an [`Mset`] into a [`Set`] **without** checking the type invariants.
@@ -145,6 +144,19 @@ impl Mset {
     #[must_use]
     pub unsafe fn into_set_unchecked(self) -> Set {
         Set(self)
+    }
+
+    /// Transmutes an [`Mset`] into a [`Set`], first checking the type invariants.
+    ///
+    /// To instead flatten the multiset, see [`Self::flatten`].
+    #[must_use]
+    pub fn into_set(self) -> Option<Set> {
+        if self.is_set() {
+            // Safety: we just checked the invariant.
+            unsafe { Some(self.into_set_unchecked()) }
+        } else {
+            None
+        }
     }
 
     /// Transmutes a [`Mset`] reference into a [`Set`] reference **without** checking the type
@@ -162,7 +174,7 @@ impl Mset {
     /// Transmutes a [`Mset`] reference into a [`Set`] reference, first checking the type
     /// invariants.
     #[must_use]
-    pub fn as_set_checked(&self) -> Option<&Set> {
+    pub fn as_set(&self) -> Option<&Set> {
         if self.is_set() {
             // Safety: we just checked the invariant.
             Some(unsafe { self.as_set_unchecked() })
@@ -186,10 +198,83 @@ impl Mset {
     /// Transmutes a mutable [`Mset`] reference into a [`Set`] reference, first checking the type
     /// invariants.
     #[must_use]
-    pub fn as_set_mut_checked(&mut self) -> Option<&mut Set> {
+    pub fn as_set_mut(&mut self) -> Option<&mut Set> {
         if self.is_set() {
             // Safety: we just checked the invariant.
             Some(unsafe { self.as_set_mut_unchecked() })
+        } else {
+            None
+        }
+    }
+
+    /// Converts `Vec<Set>` into `Vec<Mset>`.
+    #[must_use]
+    pub fn cast_vec(vec: Vec<Set>) -> Vec<Self> {
+        // Safety: `Set` and `Mset` have the same layout.
+        unsafe { crate::transmute_vec(vec) }
+    }
+}
+
+impl Set {
+    /// Returns a reference to the inner [`Mset`].
+    #[must_use]
+    pub const fn mset(&self) -> &Mset {
+        &self.0
+    }
+
+    /// Returns whether an iterator over `Set` has no duplicate elements.
+    ///
+    /// This is analogous to [`Mset::is_set_iter`], but optimizes out the hereditary check.
+    pub fn is_set_iter<'a, I: IntoIterator<Item = &'a Self>>(iter: I) -> bool {
+        // We can optimize over `Mset::is_set` by not checking the no-duplicate property on things
+        // we already know to be sets.
+        let mut keys = Levels::new_iter(iter.into_iter().map(AsRef::as_ref)).ahu(0);
+        keys.sort_unstable();
+        consecutive_eq(&keys)
+    }
+
+    /// Returns whether a slice over `Set` has no duplicate elements.
+    ///
+    /// This is analogous to [`Mset::is_set`], but optimizes out the hereditary check.
+    pub fn is_set(slice: &[Self]) -> bool {
+        Self::is_set_iter(slice)
+    }
+
+    /// Converts `Vec<Set>` into `Set` by removing duplicate elements.
+    ///
+    /// This is analogous to [`Mset::flatten`], but optimizes out the hereditary check.
+    pub fn flatten(mut vec: Vec<Self>) -> Self {
+        // We can optimize over `Mset::flatten` by not checking the no-duplicate property on things
+        // we already know to be sets.
+        let mut keys = Levels::new_iter(vec.iter().map(AsRef::as_ref)).ahu(0);
+        keys.sort_unstable();
+        keys.dedup();
+
+        for idx in keys.into_iter().rev() {
+            vec.swap_remove(idx);
+        }
+
+        // Safety: We just removed duplicates.
+        unsafe { Self::from_vec_unchecked(vec) }
+    }
+
+    /// Builds the set from a vector of sets. Does not deduplicate the set.
+    ///
+    /// ## Safety
+    ///
+    /// You must ensure any two sets in the vector are distinct.
+    #[must_use]
+    pub unsafe fn from_vec_unchecked(vec: Vec<Self>) -> Self {
+        Self(Mset::cast_vec(vec).into())
+    }
+
+    /// Transmutes a `Vec<Set>` into a [`Set`], first checking the type invariants.
+    ///
+    /// To instead flatten the vector, see [`Self::flatten`].
+    pub fn from_vec(vec: Vec<Self>) -> Option<Self> {
+        if Self::is_set(&vec) {
+            // Safety: we just checked the invariant.
+            unsafe { Some(Self::from_vec_unchecked(vec)) }
         } else {
             None
         }
@@ -201,17 +286,8 @@ impl Mset {
     ///
     /// You must guarantee that the [`Mset`] satisfy the type invariants for [`Set`].
     #[must_use]
-    pub unsafe fn cast_vec(vec: Vec<Self>) -> Vec<Set> {
+    pub unsafe fn cast_vec(vec: Vec<Mset>) -> Vec<Self> {
         crate::transmute_vec(vec)
-    }
-}
-
-impl Set {
-    /// Converts `Vec<Set>` into `Vec<Mset>`.
-    #[must_use]
-    pub fn cast_vec(vec: Vec<Self>) -> Vec<Mset> {
-        // Safety: `Set` and `Mset` have the same layout.
-        unsafe { crate::transmute_vec(vec) }
     }
 }
 
@@ -300,23 +376,16 @@ impl SetTrait for Set {
         slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len())
     }
 
+    fn _flatten_vec(vec: Vec<Self>) -> Self {
+        Self::flatten(vec)
+    }
+
     fn as_vec(&self) -> &Vec<Mset> {
         self.0.as_vec()
     }
 
     unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset> {
         self.0._as_mut_vec()
-    }
-
-    fn from_vec(vec: Vec<Self>) -> Self {
-        let mut vec = Set::cast_vec(vec);
-        let keys = Levels::new_iter(vec.iter()).ahu(0);
-        // Safety: `keys` has as many elements as `children`. We deduplicate the set so that there
-        // are no repeats.
-        unsafe {
-            dedup_by(&mut vec, &keys, &mut Vec::new(), &mut Vec::new());
-            Self(vec.into())
-        }
     }
 
     // -------------------- Constructions -------------------- //
@@ -352,7 +421,7 @@ impl SetTrait for Set {
     }
 
     fn sum_vec(vec: Vec<Self>) -> Self {
-        Self::from_vec(vec.into_iter().flatten().collect())
+        Self::flatten(vec.into_iter().flatten().collect())
     }
 
     fn union_vec(vec: Vec<Self>) -> Self {
@@ -523,12 +592,6 @@ impl SetTrait for Set {
 // -------------------- Set specific -------------------- //
 
 impl Set {
-    /// Returns a reference to the inner [`Mset`].
-    #[must_use]
-    pub const fn mset(&self) -> &Mset {
-        &self.0
-    }
-
     /// The set as a mutable slice.
     ///
     /// ## Safety
@@ -547,16 +610,6 @@ impl Set {
     /// elements equal.
     pub unsafe fn as_mut_vec(&mut self) -> &mut Vec<Mset> {
         &mut self.0 .0
-    }
-
-    /// Builds the set from a vector of sets. Does not deduplicate the set.
-    ///
-    /// ## Safety
-    ///
-    /// You must ensure any two sets in the vector are distinct.
-    #[must_use]
-    pub unsafe fn from_vec_unchecked(vec: Vec<Self>) -> Self {
-        Self(Mset::from_vec(Set::cast_vec(vec)))
     }
 
     /// Mutably iterate over the elements of the set.
@@ -888,12 +941,12 @@ impl Set {
 
     /// The domain of a relation.
     pub fn dom(self) -> Option<Self> {
-        self.dom_range(Kpair::into_fst).map(Self::from_vec)
+        self.dom_range(Kpair::into_fst).map(Self::flatten)
     }
 
     /// The range of a relation or function.
     pub fn range(self) -> Option<Self> {
-        self.dom_range(Kpair::into_snd).map(Self::from_vec)
+        self.dom_range(Kpair::into_snd).map(Self::flatten)
     }
 
     /// The domain of a function. This optimizes over [`Self::dom`] by assuming that every value in

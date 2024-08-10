@@ -1,4 +1,7 @@
 //! General library tests.
+//!
+//! We maintain a [`Suite`] of generic sets for which we test our operations. Unfortunately, due to
+//! how various tests' results have to be hardcoded, it's a bit difficult to add new sets to it.
 
 #![cfg(test)]
 
@@ -10,6 +13,7 @@ macro_rules! test {
         $(
             concat_idents::concat_idents!(fn_name = mset, $name {
                 #[test]
+                #[doc = concat!("Test [`Mset::", stringify!($name), "`].")]
                 fn fn_name() {
                     Mset::$name();
                 }
@@ -17,6 +21,7 @@ macro_rules! test {
 
             concat_idents::concat_idents!(fn_name = set, $name {
                 #[test]
+                #[doc = concat!("Test [`Set::", stringify!($name), "`].")]
                 fn fn_name() {
                     Set::$name();
                 }
@@ -44,6 +49,7 @@ macro_rules! assert_beq {
     };
 }
 
+/// Our suite of sets to perform tests on.
 trait Suite: SetTrait {
     /// A multitude of general sets for general-purpose testing.
     ///
@@ -290,13 +296,15 @@ impl Suite for Mset {
 
     fn _sum() {
         // Remove initial parentheses.
-        let suite = || Self::suite().map(|(_, str, set)| (&str[1..(str.len() - 1)], set));
+        let suite: Vec<_> = Self::suite()
+            .map(|(_, str, set)| (&str[1..(str.len() - 1)], set))
+            .collect();
 
-        for (str_1, set_1) in suite() {
-            for (str_2, set_2) in suite() {
+        for (str_1, set_1) in suite.iter() {
+            for (str_2, set_2) in suite.iter() {
                 set_1
                     .clone()
-                    .sum(set_2)
+                    .sum(set_2.clone())
                     .roundtrip(&Self::normalize(&format!("{{{str_1}, {str_2}}}")));
             }
         }
@@ -324,11 +332,58 @@ impl Suite for Set {
     }
 }
 
+// Run all the suite functions for [`Mset`] and [`Set`].
 test!(
     _suite, _empty, _singleton, _pair, _eq, _subset, _contains, _nat, _sum, _union, _inter,
     _powerset, _choose
 );
 
+/// Test [`Mset::is_set`].
+#[test]
+fn mset_is_set() {
+    /// Whether each multiset in the suite is a set.
+    const IS_SET: &[bool] = &[true, true, false, true, true, false, true];
+
+    for (i, _, set) in Mset::suite() {
+        assert_beq!(
+            IS_SET[i],
+            set.is_set(),
+            "is_set fail at {i}: multiset is{}a set"
+        );
+    }
+}
+
+/// Test that each [`Set`] in its suite is a set.
+#[test]
+fn set_is_set() {
+    for (i, _, set) in Set::suite() {
+        assert!(
+            set.mset().is_set(),
+            "is_set fail at {i}: multiset is not a set"
+        );
+    }
+}
+
+/// Test [`Mset::flatten`].
+#[test]
+fn mset_flatten() {
+    /// Flattened suite.
+    const FLATTEN: &'static [&'static str] = &[
+        "{}",
+        "{{}}",
+        "{{}}",
+        "{{}, {{}}}",
+        "{{}, {{}}, {{}, {{}}}}",
+        "{{{}}}",
+        "{{{{{}}}}}",
+    ];
+
+    for (i, _, set) in Mset::suite() {
+        set.flatten().roundtrip(FLATTEN[i])
+    }
+}
+
+/// Test [`Set::kpair`].
 #[test]
 fn set_kpair() {
     for (i, _, set_1) in Set::suite() {

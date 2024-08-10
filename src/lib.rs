@@ -4,7 +4,6 @@
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::missing_docs_in_private_items)]
 #![warn(clippy::undocumented_unsafe_blocks)]
-#![allow(private_bounds)]
 #![macro_use]
 
 /// [`smallvec::smallvec`] coerced into [`SmallVec`].
@@ -30,8 +29,8 @@ use prelude::*;
 /// Small vector.
 type SmallVec<T> = smallvec::SmallVec<[T; 4]>;
 
-/// Whether a slice has consecutive elements.
-fn has_consecutive<T: PartialEq>(slice: &[T]) -> bool {
+/// Whether a slice has consecutive equal elements.
+fn consecutive_eq<T: PartialEq>(slice: &[T]) -> bool {
     (1..slice.len()).any(|i| slice[i - 1] == slice[i])
 }
 
@@ -62,6 +61,7 @@ trait Seal {}
 /// A trait for [`Mset`] and [`Set`].
 ///
 /// The trait is sealed so that these are the only two types that ever implement it.
+#[allow(private_bounds)]
 pub trait SetTrait:
     Seal
     + AsRef<Mset>
@@ -105,8 +105,10 @@ pub trait SetTrait:
         self.into()
     }
 
-    /// Builds the set from a vector of sets.
-    fn from_vec(vec: Vec<Self>) -> Self;
+    /// **Internal method.**
+    ///
+    /// Flattens a vector of sets.
+    fn _flatten_vec(vec: Vec<Self>) -> Self;
 
     /// Removes all elements from the set.
     fn clear(&mut self) {
@@ -351,14 +353,14 @@ pub trait SetTrait:
     /// by applying a function.
     #[must_use]
     fn replace<F: FnMut(&Self) -> Self>(&self, func: F) -> Self {
-        Self::from_vec(self.iter().map(func).collect())
+        Self::_flatten_vec(self.iter().map(func).collect())
     }
 
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
     /// by applying a function.
     #[must_use]
     fn into_replace<F: FnMut(Self) -> Self>(self, func: F) -> Self {
-        Self::from_vec(self.into_iter().map(func).collect())
+        Self::_flatten_vec(self.into_iter().map(func).collect())
     }
 
     /// [Chooses](https://en.wikipedia.org/wiki/Axiom_of_choice) an arbitrary element from a

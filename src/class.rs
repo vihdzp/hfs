@@ -240,12 +240,13 @@ where
     }
 }
 
-/// A trait for a structure representing some injective function from naturals into sets.
+/// A trait for a structure representing some injective function from naturals into sets. This can
+/// be used within [`NatClass`].
 ///
 /// ## Safety
 ///
 /// The function must be injective, meaning different naturals get mapped to different sets.
-unsafe trait Inj {
+pub unsafe trait Inj {
     /// A map from naturals into sets.
     fn func(n: usize) -> Set;
 }

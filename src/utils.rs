@@ -246,6 +246,7 @@ impl<T> NestVec<T> {
 /// We don't implement this trait for the corresponding references to `Set` in the interest of
 /// avoiding code duplication. We can't implement it for `&mut Mset`, as the [`Levels`] structure
 /// would cause mutable aliasing.
+#[allow(private_bounds)]
 pub trait SetPtr: Copy + crate::Seal {
     /// Reads the pointer and retrieves the cardinality of the [`Mset`].
     ///
@@ -308,7 +309,7 @@ impl SetPtr for *mut Mset {
 ///
 /// In order to work with `Levels<*mut Mset>`, you'll have to do so starting from the last level and
 /// moving upwards. Otherwise, the pointers can get invalidated.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[repr(transparent)]
 pub struct Levels<T: SetPtr>(NestVec<T>);
 
@@ -538,7 +539,7 @@ impl<T: SetPtr> Levels<T> {
     /// ## Arguments
     ///
     /// - `level`: a level within [`Levels`].
-    /// - `cur`: a buffer to write the output.
+    /// - `cur`: a buffer to write our new values to.
     /// - `next`: the values associated to the next level.
     /// - `child_fn`: the function mapping the slice of children into the assigned value.
     ///
@@ -553,7 +554,6 @@ impl<T: SetPtr> Levels<T> {
         next: &mut [U],
         mut child_fn: F,
     ) -> bool {
-        cur.clear();
         let lev = self.0.get(level);
         // Safety: the indexed slice contains as many elements as required due to the invariant on
         // `self`.
@@ -606,6 +606,7 @@ impl<T: SetPtr> Levels<T> {
 
             level_fn(&mut sets);
             mem::swap(&mut cur, &mut next);
+            cur.clear();
         }
 
         Some(next)
@@ -619,7 +620,8 @@ impl<'a> Levels<&'a Mset> {
     /// level, via a specified function. The algorithm stops and returns false if `None` is returned
     /// by said function.
     ///
-    /// See [`Self::mod_ahu_gen`].
+    /// This directly calls the otherwise unsafe [`Self::mod_ahu_gen`], as we know `&Mset` to be
+    /// dereferenceable.
     pub fn mod_ahu<U, V, F: FnMut(&mut V, &mut [U], &Mset) -> Option<U>, G: FnMut(&mut V)>(
         &self,
         level: usize,
@@ -632,7 +634,7 @@ impl<'a> Levels<&'a Mset> {
     }
 
     /// The simplest and most common instantiation of [`Self::mod_ahu`], where we simply find unique
-    /// labels for the sets at a given level.
+    /// labels for the sets at a given level. These labels are consecutive integers starting from 0.
     pub fn ahu(&self, level: usize) -> Vec<usize> {
         let ahu = self.mod_ahu(
             level,
@@ -788,6 +790,7 @@ impl<'a> Levels<&'a Mset> {
             // sets at once.
             unsafe {
                 // Processs second set.
+                cur.clear();
                 other.step_ahu(level, &mut cur, &mut snd_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();
@@ -809,6 +812,7 @@ impl<'a> Levels<&'a Mset> {
                 mem::swap(&mut cur, &mut snd_next);
 
                 // Process first set.
+                cur.clear();
                 let res = self.step_ahu(level, &mut cur, &mut fst_next, |slice, _| {
                     let mut children: SmallVec<_> = slice.iter().copied().collect();
                     children.sort_unstable();

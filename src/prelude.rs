@@ -11,7 +11,7 @@ pub use crate::{
 
 // Convenient imports within the crate.
 pub(crate) use crate::{
-    has_consecutive,
+    consecutive_eq,
     utils::{btree_index, Compare, Levels},
     SmallVec,
 };

@@ -201,7 +201,7 @@ impl SetTrait for Mset {
         &mut self.0
     }
 
-    fn from_vec(vec: Vec<Self>) -> Self {
+    fn _flatten_vec(vec: Vec<Self>) -> Self {
         vec.into()
     }
 
