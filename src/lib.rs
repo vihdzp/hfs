@@ -60,7 +60,9 @@ trait Seal {}
 
 /// A trait for [`Mset`] and [`Set`].
 ///
-/// The trait is sealed so that these are the only two types that ever implement it.
+/// **This isn't meant to be used generically.** Instead, it exists to collect the large amount of
+/// shared code between these two types. As such, it is sealed so that these are the only two types
+/// that ever implement it.
 #[allow(private_bounds)]
 pub trait SetTrait:
     Seal
@@ -81,23 +83,22 @@ pub trait SetTrait:
     /// The set as a slice.
     fn as_slice(&self) -> &[Self];
 
-    /// **Internal method.**
-    ///
     /// The set as a mutable slice.
+    ///
+    /// See [`Mset::as_mut_slice`] and [`Set::as_mut_slice`].
     #[allow(clippy::missing_safety_doc)]
+    #[deprecated = "internal method, use Mset::as_mut_slice or Set::as_mut_slice."]
     unsafe fn _as_mut_slice(&mut self) -> &mut [Self];
 
-    /// A reference to the inner vector.
-    ///
-    /// Note that internally, both kinds of set store [`Mset`].
+    /// A reference to the inner vector. Note that internally, both kinds of set store [`Mset`].
     fn as_vec(&self) -> &Vec<Mset>;
 
-    /// **Internal method.**
+    /// A mutable reference to the inner vector. Note that internally, both kinds of set store
+    /// [`Mset`].
     ///
-    /// A mutable reference to the inner vector.
-    ///
-    /// Note that internally, both kinds of set store [`Mset`].
+    /// See [`Mset::as_mut_vec`] and [`Set::as_mut_vec`].
     #[allow(clippy::missing_safety_doc)]
+    #[deprecated = "internal method, use Mset::as_mut_vec or Set::as_mut_vec."]
     unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset>;
 
     /// Converts the set into a vector of sets.
@@ -105,15 +106,17 @@ pub trait SetTrait:
         self.into()
     }
 
-    /// **Internal method.**
-    ///
-    /// Flattens a vector of sets.
+    /// Flattens a vector of sets.   
+    #[deprecated = "internal method, use Mset::from or Set::flatten."]
     fn _flatten_vec(vec: Vec<Self>) -> Self;
 
     /// Removes all elements from the set.
     fn clear(&mut self) {
         // Safety: The empty set is valid for both types.
-        unsafe { self._as_mut_vec().clear() }
+        #[allow(deprecated)]
+        unsafe {
+            self._as_mut_vec().clear()
+        }
     }
 
     /// Set cardinality.
@@ -189,7 +192,10 @@ pub trait SetTrait:
         if self.card() == 1 {
             // Safety: it's not a problem if this element is modified, as a singleton can never have
             // duplicate elements to begin with.
-            unsafe { self._as_mut_slice().first_mut() }
+            #[allow(deprecated)]
+            unsafe {
+                self._as_mut_slice().first_mut()
+            }
         } else {
             None
         }
@@ -352,6 +358,7 @@ pub trait SetTrait:
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
     /// by applying a function.
     #[must_use]
+    #[allow(deprecated)]
     fn replace<F: FnMut(&Self) -> Self>(&self, func: F) -> Self {
         Self::_flatten_vec(self.iter().map(func).collect())
     }
@@ -359,6 +366,7 @@ pub trait SetTrait:
     /// [Replaces](https://en.wikipedia.org/wiki/Axiom_schema_of_replacement) the elements in a set
     /// by applying a function.
     #[must_use]
+    #[allow(deprecated)]
     fn into_replace<F: FnMut(Self) -> Self>(self, func: F) -> Self {
         Self::_flatten_vec(self.into_iter().map(func).collect())
     }

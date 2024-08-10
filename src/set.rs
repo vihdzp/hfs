@@ -376,16 +376,17 @@ impl SetTrait for Set {
         slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len())
     }
 
-    fn _flatten_vec(vec: Vec<Self>) -> Self {
-        Self::flatten(vec)
-    }
-
     fn as_vec(&self) -> &Vec<Mset> {
         self.0.as_vec()
     }
 
+    #[allow(deprecated)]
     unsafe fn _as_mut_vec(&mut self) -> &mut Vec<Mset> {
         self.0._as_mut_vec()
+    }
+
+    fn _flatten_vec(vec: Vec<Self>) -> Self {
+        Self::flatten(vec)
     }
 
     // -------------------- Constructions -------------------- //
@@ -478,7 +479,7 @@ impl SetTrait for Set {
 
         for (i, _) in sets.into_values() {
             // Safety: all the indices we built are valid for the first set.
-            let set = mem::take(unsafe { fst._as_mut_slice().get_unchecked_mut(i) });
+            let set = mem::take(unsafe { fst.as_mut_slice().get_unchecked_mut(i) });
             snd.insert_mut(set);
         }
 
@@ -598,6 +599,7 @@ impl Set {
     ///
     /// You must preserve the type invariants for [`Set`]. In particular, you can't make two
     /// elements equal.
+    #[allow(deprecated)]
     pub unsafe fn as_mut_slice(&mut self) -> &mut [Self] {
         self._as_mut_slice()
     }
