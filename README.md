@@ -26,7 +26,7 @@ We also implement `Class`, representing a potentially infinite [class](https://e
 
 ## Optimization
 
-19<sup>th</sup> century foundational mathematics were really not optimized for computers. Every non-empty set requires a separate heap allocation, so even moderately large sets might be slow to declare. Determining set equality or membership are nontrivial tasks, and this extends to more complex operations like taking unions or intersections. A naive set comparison algorithm might have exponential complexity or worse.
+20<sup>th</sup> century foundational mathematics were really not optimized for computers. Every non-empty set requires a separate heap allocation, so even moderately large sets might be slow to declare. Determining set equality or membership are nontrivial tasks, and this extends to more complex operations like taking unions or intersections. A naive set comparison algorithm might have exponential complexity or worse.
 
 The [AHU algorithm](https://www.baeldung.com/cs/isomorphic-trees) is what allows us to do any of these operations in a reasonable timespan. The multiple steps within it are implemented as different bespoke methods within our internal `Levels` type. Basically, we first build a vector of vectors "flattening out" our set into levels. Then, from the bottom up, we assign some value to each set in function of the values of its elements. What these values might be, whether we even need to compute all of them, or if we should compute more than one at once, will vary from algorithm to algorithm, which is why the methods in `Levels` are so general.
 
